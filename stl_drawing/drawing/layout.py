@@ -16,6 +16,7 @@ import logging
 from typing import Dict, Optional, Tuple
 
 from stl_drawing.config import (
+    DIM_MARGIN_RESERVE,
     MARGIN_LEFT,
     MARGIN_OTHER,
     TITLE_BLOCK_H,
@@ -123,12 +124,15 @@ def arrange_three_views(views_data: Dict, scale: float, sheet_w: float, sheet_h:
     usable_w = sheet_w - 2 * margin
     usable_h = sheet_h - 2 * margin - TITLE_BLOCK_H
 
-    cx = margin + (usable_w - front_w - right_w) / 2
-    cy = margin + (usable_h - front_h - top_h) / 2
+    # Общая высота блока: front + sp + top (top ПОД front по ГОСТ 2.305-2008, метод 1-го угла)
+    total_h = front_h + sp + top_h
+    cx = margin + (usable_w - front_w - sp - right_w) / 2
+    cy = margin + (usable_h - total_h) / 2
 
     layout = {}
     layout['front'] = make_layout_entry('front', cx, cy, views_data, scale)
-    layout['top']   = make_layout_entry('top',   cx, cy - top_h - sp, views_data, scale)
+    # Метод первого угла: вид сверху → ПОД фронтальным
+    layout['top']   = make_layout_entry('top',   cx, cy + front_h + sp, views_data, scale)
     layout['right'] = make_layout_entry('right', cx + front_w + sp, cy, views_data, scale)
     return layout
 
@@ -298,8 +302,8 @@ def select_format_and_scale(views_data: Dict) -> tuple:
 
             # Попробовать обе ориентации: landscape и portrait
             for sheet_w, sheet_h in [(long_, short), (short, long_)]:
-                avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER
-                avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H
+                avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER - 2 * DIM_MARGIN_RESERVE
+                avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H - 2 * DIM_MARGIN_RESERVE
 
                 if avail_w <= 0 or avail_h <= 0:
                     continue

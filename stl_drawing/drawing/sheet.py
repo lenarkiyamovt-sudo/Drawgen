@@ -29,6 +29,12 @@ from stl_drawing.drawing.layout import (
     front_view_size_mm,
     select_format_and_scale,
 )
+from stl_drawing.drawing.dimensions import (
+    deduplicate_dimensions,
+    extract_dimensions,
+    place_dimensions,
+    render_dimensions,
+)
 from stl_drawing.drawing.svg_renderer import render_view_lines
 from stl_drawing.drawing.title_block import (
     add_additional_stamps,
@@ -52,6 +58,7 @@ class ESKDDrawingSheet:
 
     def __init__(self) -> None:
         self.views_data: Dict[str, Dict] = {}
+        self.cylinders: List[dict] = []
         self.scale: float = 1.0
         self.sheet_w: float = 0.0
         self.sheet_h: float = 0.0
@@ -79,6 +86,14 @@ class ESKDDrawingSheet:
             'org_name':        org_name,
             'surname':         surname,
         }
+
+    def set_cylinders(self, cylinders: List[dict]) -> None:
+        """Задать данные цилиндров для автоматического оразмеривания.
+
+        Args:
+            cylinders: список цилиндров из CylinderDetector.
+        """
+        self.cylinders = cylinders or []
 
     # ------------------------------------------------------------------
     # Загрузка данных видов
@@ -188,6 +203,16 @@ class ESKDDrawingSheet:
             views_group.add(view_group)
 
         dwg.add(views_group)
+
+        # 5.5. Автоматическое оразмеривание (ГОСТ 2.307-2011)
+        dim_candidates = extract_dimensions(active_views, self.cylinders, selected)
+        dims_by_view = deduplicate_dimensions(dim_candidates, selected)
+        placed_dims = place_dimensions(dims_by_view, layout, self.scale, eskd_styles)
+        if placed_dims:
+            dim_group = render_dimensions(dwg, placed_dims, eskd_styles)
+            dwg.add(dim_group)
+            logger.info("Добавлено %d размеров на чертёж", len(placed_dims))
+
         add_title_block(dwg, self.sheet_w, self.sheet_h, self.scale, self.metadata)
         add_additional_stamps(dwg, self.sheet_w, self.sheet_h, self.format_name or "", self.metadata)
 

@@ -8,6 +8,10 @@
 from typing import Dict
 
 from stl_drawing.config import (
+    DIM_ARROW_LENGTH,
+    DIM_ARROW_WIDTH,
+    DIM_FONT_FAMILY,
+    DIM_TEXT_HEIGHT,
     GOST_FORMATS,
     GOST_FORMATS_ORDERED,
     GOST_REDUCTION_SCALES,
@@ -90,6 +94,22 @@ def calculate_line_parameters(
             'stroke': 'red',
             'stroke_width': f'{thin_width:.2f}mm',
             'stroke_linecap': 'butt',
+        },
+        'dimension': {
+            'stroke': 'black',
+            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_linecap': 'butt',
+        },
+        'dimension_text': {
+            'font_family': f'{DIM_FONT_FAMILY}, Arial',
+            'font_size': f'{DIM_TEXT_HEIGHT}mm',
+            'font_style': 'italic',
+            'fill': 'black',
+            'text_anchor': 'middle',
+        },
+        'dimension_arrow': {
+            'length': DIM_ARROW_LENGTH,
+            'width': DIM_ARROW_WIDTH,
         },
         '_params': {
             'S': stroke_width,

@@ -184,6 +184,13 @@ def _render_centerlines(
 ) -> None:
     """Отрисовать осевые линии цилиндров (ГОСТ 2.303-68: штрихпунктирная тонкая).
 
+    Правила ГОСТ 2.303-68:
+      - Вынос осевой за контур тела: 2–5 мм (используем 3 мм).
+      - Окружности Ø < 12 мм на бумаге: центровые линии —
+        сплошные тонкие (без штрихпунктира).
+      - Линия короче двух полных штрихпунктирных циклов —
+        рисуется сплошной тонкой.
+
     Args:
         dwg: SVG-документ.
         group: SVG-группа вида для добавления элементов.
@@ -199,8 +206,17 @@ def _render_centerlines(
     cl_dot = params['cl_dot']
     dasharray = f"{cl_dash},{cl_gap},{cl_dot},{cl_gap}"
 
-    # Фиксированный вынос осевой за габариты тела (мм на листе)
-    cl_extension_mm = 1.0
+    # Один полный цикл штрихпунктира: штрих + пробел + точка + пробел
+    dash_cycle = cl_dash + cl_gap + cl_dot + cl_gap
+
+    # ГОСТ 2.303-68: вынос осевой за контур — 2–5 мм
+    cl_extension_mm = 3.0
+
+    # ГОСТ 2.303-68 п.3.2: предел перехода на сплошную тонкую (мм на бумаге)
+    _SMALL_CIRCLE_DIAM_LIMIT = 12.0
+
+    # Минимальное полуплечо перекрестия (мм)
+    _MIN_CROSSHAIR_ARM = 5.0
 
     for cl in centerlines:
         if cl['type'] == 'centerline':
@@ -209,41 +225,50 @@ def _render_centerlines(
             x2 = float(cl['end'][0]) * scale + translate_x
             y2 = float(cl['end'][1]) * scale + translate_y
 
-            length = math.hypot(x2 - x1, y2 - y1)
-            if length < 1.0:
+            body_length = math.hypot(x2 - x1, y2 - y1)
+            if body_length < 0.5:
                 continue
 
-            # Вынос на 1.0 мм за габариты тела с каждой стороны
+            # Вынос на 3 мм за габариты тела с каждой стороны
             (x1, y1), (x2, y2) = extend_line((x1, y1), (x2, y2), cl_extension_mm)
+            total_length = body_length + 2 * cl_extension_mm
 
             line = dwg.line(start=(x1, y1), end=(x2, y2), **cl_style)
-            line['stroke-dasharray'] = dasharray
+            # Штрихпунктир только если вмещается ≥ 2 цикла, иначе — сплошная тонкая
+            if total_length >= 2 * dash_cycle:
+                line['stroke-dasharray'] = dasharray
             line['data-line-type'] = 'centerline'
             group.add(line)
 
         elif cl['type'] == 'crosshair':
             cx = float(cl['center'][0]) * scale + translate_x
             cy = float(cl['center'][1]) * scale + translate_y
-            # Радиус в мм + вынос 1.0 мм
-            size_mm = float(cl['radius']) * scale + cl_extension_mm
+            r_paper = float(cl['radius']) * scale
+            diam_paper = 2.0 * r_paper
 
-            if size_mm < 0.5:
+            # Полуплечо: радиус на бумаге + вынос, но не менее минимума
+            arm = max(r_paper + cl_extension_mm, _MIN_CROSSHAIR_ARM)
+
+            if arm < 1.0:
                 continue
 
             # Горизонтальная осевая
             h_line = dwg.line(
-                start=(cx - size_mm, cy), end=(cx + size_mm, cy),
+                start=(cx - arm, cy), end=(cx + arm, cy),
                 **cl_style,
             )
-            h_line['stroke-dasharray'] = dasharray
+            # ГОСТ 2.303-68 п.3.2: при Ø < 12 мм — сплошная тонкая
+            if diam_paper >= _SMALL_CIRCLE_DIAM_LIMIT and 2 * arm >= 2 * dash_cycle:
+                h_line['stroke-dasharray'] = dasharray
             h_line['data-line-type'] = 'centerline'
             group.add(h_line)
 
             # Вертикальная осевая
             v_line = dwg.line(
-                start=(cx, cy - size_mm), end=(cx, cy + size_mm),
+                start=(cx, cy - arm), end=(cx, cy + arm),
                 **cl_style,
             )
-            v_line['stroke-dasharray'] = dasharray
+            if diam_paper >= _SMALL_CIRCLE_DIAM_LIMIT and 2 * arm >= 2 * dash_cycle:
+                v_line['stroke-dasharray'] = dasharray
             v_line['data-line-type'] = 'centerline'
             group.add(v_line)

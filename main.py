@@ -13,6 +13,12 @@ import logging
 import sys
 from typing import Dict, List
 
+# Обеспечить поддержку Unicode (emoji и т.п.) на Windows-консоли
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr.encoding and sys.stderr.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 import numpy as np
 
 from stl_drawing.drawing.sheet import ESKDDrawingSheet
@@ -136,6 +142,9 @@ def run_pipeline(
         centerlines = _compute_centerlines(cylinders, view_name)
         sheet.add_view_data(view_name, projected, visible, hidden,
                             centerlines=centerlines)
+
+    # Передать данные цилиндров для оразмеривания
+    sheet.set_cylinders(cylinders)
 
     # --- Шаг 6: Генерация чертежа ---
     logger.info("=" * 60)
