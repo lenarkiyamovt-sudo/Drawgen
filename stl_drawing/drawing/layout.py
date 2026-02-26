@@ -13,7 +13,7 @@
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from stl_drawing.config import (
     MARGIN_LEFT,
@@ -24,6 +24,7 @@ from stl_drawing.config import (
     N_GAPS_VERTICAL,
     GOST_FORMATS,
     GOST_FORMATS_ORDERED,
+    GOST_REDUCTION_SCALES,
 )
 from stl_drawing.drawing.gost_params import snap_to_gost_scale
 
@@ -211,6 +212,54 @@ def compute_layout_model_dims(views_data: Dict) -> tuple:
     return fw + rw, fh + th
 
 
+def compute_layout_dims_mm(views_data: Dict, scale: float) -> Tuple[float, float]:
+    """Вычислить габаритные размеры компоновки видов в мм для заданного масштаба.
+
+    Учитывает зазоры между видами и тип компоновки (6/3/grid),
+    в точности повторяя логику arrange-функций.
+
+    Args:
+        views_data: словарь данных видов.
+        scale: масштаб чертежа.
+
+    Returns:
+        (total_width_mm, total_height_mm) — габаритные размеры блока видов.
+    """
+    sp = VIEW_SPACING_MM
+    six = ['front', 'back', 'top', 'bottom', 'left', 'right']
+    three = ['front', 'top', 'right']
+
+    if all(v in views_data for v in six):
+        fw = views_data['front']['bbox']['width'] * scale
+        fh = views_data['front']['bbox']['height'] * scale
+        lw = views_data['left']['bbox']['width'] * scale
+        rw = views_data['right']['bbox']['width'] * scale
+        bw = views_data['back']['bbox']['width'] * scale
+        th = views_data['top']['bbox']['height'] * scale
+        bth = views_data['bottom']['bbox']['height'] * scale
+        return (rw + sp + fw + sp + lw + sp + bw,
+                bth + sp + fh + sp + th)
+
+    if all(v in views_data for v in three):
+        fw = views_data['front']['bbox']['width'] * scale
+        fh = views_data['front']['bbox']['height'] * scale
+        rw = views_data['right']['bbox']['width'] * scale
+        th = views_data['top']['bbox']['height'] * scale
+        return (fw + sp + rw, th + sp + fh)
+
+    # Grid fallback (3-column, 20mm spacing — как в arrange_grid)
+    view_names = list(views_data.keys())
+    if not view_names:
+        return (0.0, 0.0)
+    columns = min(len(view_names), 3)
+    rows = (len(view_names) + columns - 1) // columns
+    max_w = max(views_data[v]['bbox']['width'] for v in view_names) * scale
+    max_h = max(views_data[v]['bbox']['height'] for v in view_names) * scale
+    grid_sp = 20.0
+    return (max_w * columns + grid_sp * (columns - 1),
+            max_h * rows + grid_sp * (rows - 1))
+
+
 def front_view_size_mm(views_data: Dict, scale: float) -> float:
     """Размер главного вида на листе в мм (минимальный из ширины и высоты)."""
     if 'front' not in views_data:
@@ -224,75 +273,66 @@ def front_view_size_mm(views_data: Dict, scale: float) -> float:
 
 
 def select_format_and_scale(views_data: Dict) -> tuple:
-    """Выбрать формат и масштаб ГОСТ, максимизирующий размер вида на листе.
+    """Выбрать формат и масштаб ГОСТ, максимизирующий масштаб чертежа.
 
-    Стратегия: перебрать A4→A0, для каждого найти максимальный ГОСТ-масштаб,
-    при котором компоновка помещается на лист. Выбрать наибольший масштаб
-    (= лучшая читаемость). При равных масштабах — меньший формат.
+    Стратегия (scale-first, Tekla-style):
+      1. Перебрать масштабы ГОСТ от крупного к мелкому (1:1 → 1:1000).
+      2. Для каждого масштаба вычислить размеры компоновки в мм
+         (с учётом реальных зазоров между видами).
+      3. Перебрать форматы от A4 до A0, в обеих ориентациях
+         (landscape и portrait).
+      4. Вернуть первую подходящую комбинацию =
+         максимальный масштаб + минимальный формат + оптимальная ориентация.
+
+    Такой порядок перебора гарантирует наилучшую читаемость (крупный масштаб)
+    при минимальном расходе бумаги (наименьший подходящий формат).
 
     Returns:
         (format_name, scale, sheet_width, sheet_height)
     """
-    from stl_drawing.config import TITLE_BLOCK_H, MARGIN_LEFT, MARGIN_OTHER
+    for gost_scale in GOST_REDUCTION_SCALES:
+        layout_w, layout_h = compute_layout_dims_mm(views_data, gost_scale)
+
+        for fmt in GOST_FORMATS_ORDERED:
+            short, long_ = GOST_FORMATS[fmt]
+
+            # Попробовать обе ориентации: landscape и portrait
+            for sheet_w, sheet_h in [(long_, short), (short, long_)]:
+                avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER
+                avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H
+
+                if avail_w <= 0 or avail_h <= 0:
+                    continue
+
+                if layout_w > avail_w + 0.1 or layout_h > avail_h + 0.1:
+                    continue
+
+                # Подходит — логируем и возвращаем
+                front_mm = front_view_size_mm(views_data, gost_scale)
+                fill = (layout_w * layout_h) / (avail_w * avail_h) * 100
+                inv = 1.0 / gost_scale if gost_scale > 0 else 9999
+                orient = 'landscape' if sheet_w >= sheet_h else 'portrait'
+
+                logger.info(
+                    "=> Формат: %s (%s)  масштаб 1:%.4g  "
+                    "(фронт %.1f мм, заполнение %.0f%%)",
+                    fmt, orient, inv, front_mm, fill,
+                )
+                return fmt, gost_scale, sheet_w, sheet_h
+
+    # Аварийный fallback: A0 landscape, минимально возможный масштаб
+    logger.warning("Ни один масштаб ГОСТ не подошёл — аварийный fallback на A0")
+    short, long_ = GOST_FORMATS['A0']
+    sheet_w, sheet_h = long_, short
+    avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER
+    avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H
 
     model_w, model_h = compute_layout_model_dims(views_data)
-    sp_mm = VIEW_SPACING_MM
-    n_gaps_w = N_GAPS_HORIZONTAL
-    n_gaps_h = N_GAPS_VERTICAL
-
-    best_format, best_scale = None, 0.0
-
-    for fmt in GOST_FORMATS_ORDERED:
-        short, long_ = GOST_FORMATS[fmt]
-        sheet_w, sheet_h = long_, short  # ландшафт
-
-        avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER
-        avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H
-
-        views_w = avail_w - n_gaps_w * sp_mm
-        views_h = avail_h - n_gaps_h * sp_mm
-        if views_w <= 0 or views_h <= 0:
-            continue
-
-        raw_scale = min(views_w / model_w, views_h / model_h)
-        gost_scale = snap_to_gost_scale(raw_scale)
-
-        layout_w = model_w * gost_scale + n_gaps_w * sp_mm
-        layout_h = model_h * gost_scale + n_gaps_h * sp_mm
-        if layout_w > avail_w + 0.1 or layout_h > avail_h + 0.1:
-            continue
-
-        front_mm = front_view_size_mm(views_data, gost_scale)
-        inv = 1.0 / gost_scale if gost_scale > 0 else 9999
-        fill = (layout_w * layout_h) / (avail_w * avail_h) * 100
-
-        logger.info(
-            "  %s: avail %dx%d, ГОСТ 1:%.4g, фронт=%.1fмм, заполнение=%.0f%%",
-            fmt, int(avail_w), int(avail_h), inv, front_mm, fill,
-        )
-
-        if gost_scale > best_scale:
-            best_scale = gost_scale
-            best_format = fmt
-
-    if best_format is None:
-        # Аварийный fallback: A0, минимально возможный масштаб
-        from stl_drawing.config import TITLE_BLOCK_H
-        best_format = 'A0'
-        short, long_ = GOST_FORMATS['A0']
-        avail_w = long_ - MARGIN_LEFT - MARGIN_OTHER
-        avail_h = short - 2 * MARGIN_OTHER - TITLE_BLOCK_H
-        raw = min(
-            (avail_w - n_gaps_w * sp_mm) / model_w,
-            (avail_h - n_gaps_h * sp_mm) / model_h,
-        )
-        best_scale = snap_to_gost_scale(raw)
-
-    short, long_ = GOST_FORMATS[best_format]
-    sheet_w, sheet_h = long_, short
-    inv = 1.0 / best_scale if best_scale > 0 else 9999
-    logger.info(
-        "=> Выбран формат: %s  масштаб 1:%.4g  (фронт %.1f мм)",
-        best_format, inv, front_view_size_mm(views_data, best_scale),
+    raw = min(
+        (avail_w - N_GAPS_HORIZONTAL * VIEW_SPACING_MM) / max(model_w, 1e-9),
+        (avail_h - N_GAPS_VERTICAL * VIEW_SPACING_MM) / max(model_h, 1e-9),
     )
-    return best_format, best_scale, sheet_w, sheet_h
+    best_scale = snap_to_gost_scale(raw)
+    inv = 1.0 / best_scale if best_scale > 0 else 9999
+    logger.info("=> Fallback: A0 landscape  масштаб 1:%.4g", inv)
+    return 'A0', best_scale, sheet_w, sheet_h
