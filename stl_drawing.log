@@ -1,0 +1,58 @@
+2026-02-26 10:33:06,657 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,658 [INFO] __main__: Шаг 1: Загрузка STL
+2026-02-26 10:33:06,658 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,658 [INFO] stl_drawing.io.stl_loader: Загрузка STL: C:/Users/Admin/Documents/scripts/!!!drawgen/new_one/Shveller_16P.stl
+2026-02-26 10:33:06,665 [INFO] stl_drawing.io.stl_loader: Загружено: 272 уникальных вершин, 540 граней.
+2026-02-26 10:33:06,666 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,666 [INFO] __main__: Шаг 2: PCA-ориентация по нормалям граней
+2026-02-26 10:33:06,666 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,666 [INFO] stl_drawing.orientation.pca: AABB до ориентации: 64.0 x 160.0 x 751.0
+2026-02-26 10:33:06,667 [INFO] stl_drawing.orientation.pca:   PC0 -> ближайшая ось X (угол=0.0, eigenvalue=235967)
+2026-02-26 10:33:06,667 [INFO] stl_drawing.orientation.pca:   PC1 -> ближайшая ось Y (угол=0.0, eigenvalue=180393)
+2026-02-26 10:33:06,667 [INFO] stl_drawing.orientation.pca:   PC2 -> ближайшая ось Z (угол=0.0, eigenvalue=3623)
+2026-02-26 10:33:06,667 [INFO] stl_drawing.orientation.pca: OBB/AABB объём: 100.0%
+2026-02-26 10:33:06,668 [INFO] stl_drawing.orientation.pca: PCA ПРОПУЩЕН: модель уже хорошо выровнена.
+2026-02-26 10:33:06,668 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,668 [INFO] __main__: Шаг 3: Выбор лучшего главного вида
+2026-02-26 10:33:06,668 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,670 [INFO] stl_drawing.orientation.view_scorer:   front -Z    area=1812        sil=0     normals=1    score=2717
+2026-02-26 10:33:06,672 [INFO] stl_drawing.orientation.view_scorer:   front +Z    area=1812        sil=0     normals=1    score=2717
+2026-02-26 10:33:06,674 [INFO] stl_drawing.orientation.view_scorer:   front -X    area=120160      sil=0     normals=17   score=1141520
+2026-02-26 10:33:06,676 [INFO] stl_drawing.orientation.view_scorer:   front +X    area=120160      sil=0     normals=1    score=180240
+2026-02-26 10:33:06,678 [INFO] stl_drawing.orientation.view_scorer:   front -Y    area=92373       sil=0     normals=9    score=508051
+2026-02-26 10:33:06,680 [INFO] stl_drawing.orientation.view_scorer:   front +Y    area=92373       sil=0     normals=9    score=508051
+2026-02-26 10:33:06,681 [INFO] stl_drawing.orientation.view_scorer: => Лучший фронт: front -X (score=1141520)
+2026-02-26 10:33:06,681 [INFO] stl_drawing.orientation.view_scorer: После переориентации: 751.0 x 160.0 x 64.0 (X=ширина, Y=высота, Z=глубина)
+2026-02-26 10:33:06,681 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,681 [INFO] __main__: Шаг 4: Топологическая обработка рёбер
+2026-02-26 10:33:06,681 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,683 [INFO] stl_drawing.topology.processor: TopologyProcessor: 810 рёбер.
+2026-02-26 10:33:06,717 [INFO] stl_drawing.topology.processor: Рёбра: 276 острых, 534 плавных.
+2026-02-26 10:33:06,717 [INFO] stl_drawing.projection.view_processor: ViewProcessor инициализирован.
+2026-02-26 10:33:06,717 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,717 [INFO] __main__: Шаг 5: Генерация видов (6 проекций)
+2026-02-26 10:33:06,717 [INFO] __main__: ============================================================
+2026-02-26 10:33:06,717 [INFO] __main__:   Обработка вида: front
+2026-02-26 10:33:07,120 [INFO] __main__:   Обработка вида: back
+2026-02-26 10:33:21,334 [INFO] __main__:   Обработка вида: top
+2026-02-26 10:33:21,573 [INFO] __main__:   Обработка вида: bottom
+2026-02-26 10:33:21,753 [INFO] __main__:   Обработка вида: left
+2026-02-26 10:33:23,016 [INFO] __main__:   Обработка вида: right
+2026-02-26 10:33:26,436 [INFO] __main__: ============================================================
+2026-02-26 10:33:26,436 [INFO] __main__: Шаг 6: Генерация ЕСКД-чертежа
+2026-02-26 10:33:26,436 [INFO] __main__: ============================================================
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.view_selector: Информационные score видов: {'back': '12.6', 'bottom': '4.3', 'front': '11.2', 'left': '136.0', 'right': '138.0', 'top': '4.3'}
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.view_selector: Выбрано 3 видов: ['front', 'top', 'right']
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.view_selector:   X back: противоположный вид к front (visible: 10 vs 12)
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.view_selector:   X bottom: противоположный вид к top (visible: 4 vs 4)
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.view_selector:   X left: противоположный вид к right (visible: 138 vs 136)
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.sheet: Используется 3 видов: ['front', 'top', 'right']
+2026-02-26 10:33:26,438 [INFO] stl_drawing.drawing.layout:   A4: avail 272x145, ГОСТ 1:5, фронт=32.0мм, заполнение=67%
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.layout:   A3: avail 395x232, ГОСТ 1:4, фронт=40.0мм, заполнение=37%
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.layout:   A2: avail 569x355, ГОСТ 1:2, фронт=80.0мм, заполнение=42%
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.layout:   A1: avail 816x529, ГОСТ 1:2, фронт=80.0мм, заполнение=20%
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.layout:   A0: avail 1164x776, ГОСТ 1:1, фронт=160.0мм, заполнение=28%
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.layout: => Выбран формат: A0  масштаб 1:1  (фронт 160.0 мм)
+2026-02-26 10:33:26,439 [INFO] stl_drawing.drawing.sheet: Параметры линий: S=0.7 мм, штрих=5 мм, пробел=2.0 мм
+2026-02-26 10:33:26,452 [INFO] stl_drawing.drawing.sheet: ЕСКД-чертёж сохранён: C:/Users/Admin/Documents/scripts/!!!drawgen/new_one/test_output.svg
+2026-02-26 10:33:26,452 [INFO] __main__: Готово. Чертёж: C:/Users/Admin/Documents/scripts/!!!drawgen/new_one/test_output.svg

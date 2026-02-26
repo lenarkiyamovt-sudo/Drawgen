@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="50mm" height="100mm" viewBox="0 0 50 100">
+  <defs>
+    <!-- Clip to left half (x=0..25) -->
+    <clipPath id="clip-left" clipPathUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="25" height="100" />
+    </clipPath>
+  </defs>
+  <!-- Red background to see clip boundary -->
+  <rect x="0" y="0" width="25" height="100" fill="#ffcccc"/>
+  <rect x="25" y="0" width="25" height="100" fill="#ccffcc"/>
+  <!-- Text WITHOUT clip (should overflow into green area) -->
+  <text x="12.5" y="20" font-size="5mm" font-family="Arial" text-anchor="middle" fill="blue">
+    No-clip text
+  </text>
+  <!-- Text WITH clip (should stay in red area) -->
+  <g clip-path="url(#clip-left)">
+    <text x="12.5" y="50" font-size="5mm" font-family="Arial" text-anchor="middle" fill="black">
+      Clipped text
+    </text>
+  </g>
+</svg>

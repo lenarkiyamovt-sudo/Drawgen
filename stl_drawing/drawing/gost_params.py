@@ -1,0 +1,101 @@
+"""
+Параметры линий по ГОСТ 2.303-68.
+
+Вычисляет толщины и параметры штрихов в зависимости от размера
+главного вида на листе. Все ГОСТ-стандарты и форматы — в config.py.
+"""
+
+from typing import Dict
+
+from stl_drawing.config import (
+    GOST_FORMATS,
+    GOST_FORMATS_ORDERED,
+    GOST_REDUCTION_SCALES,
+    S_THIN_DRAWING,
+    S_THICK_DRAWING,
+)
+
+
+def calculate_line_parameters(
+    front_view_mm: float = 100.0,
+    stroke_width: float = None,
+) -> Dict[str, Dict]:
+    """Вычислить параметры линий по ГОСТ 2.303-68.
+
+    ГОСТ 2.303-68 задаёт:
+      - S (основная линия): 0.5–1.4 мм
+      - Штриховая: толщина S/3..S/2, штрихи 2–8 мм, промежутки 1–2 мм
+
+    Практическое отображение (размер вида → параметры):
+      < 40 мм:   S=0.5, штрих=2, пробел=1
+      40–80 мм:  S=0.5, штрих=3, пробел=1
+      80–150 мм: S=0.7, штрих=4, пробел=1.5
+      > 150 мм:  S=0.7, штрих=5, пробел=2
+
+    Args:
+        front_view_mm: размер главного вида на бумаге (мм).
+        stroke_width:  переопределить S вручную (None → авто).
+
+    Returns:
+        Словарь стилей: 'visible', 'hidden', 'hidden_solid', 'thin', '_params'.
+    """
+    if stroke_width is None:
+        stroke_width = S_THICK_DRAWING if front_view_mm >= 80 else S_THIN_DRAWING
+
+    if front_view_mm < 40:
+        dash_length, gap_length = 2.0, 1.0
+    elif front_view_mm < 80:
+        dash_length, gap_length = 3.0, 1.0
+    elif front_view_mm < 150:
+        dash_length, gap_length = 4.0, 1.5
+    else:
+        dash_length, gap_length = 5.0, 2.0
+
+    thin_width = stroke_width / 2.0  # ГОСТ: тонкая линия = S/2
+
+    return {
+        'visible': {
+            'stroke': 'black',
+            'stroke_width': f'{stroke_width}mm',
+            'stroke_linecap': 'butt',
+        },
+        'hidden': {
+            'stroke': 'black',
+            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_dasharray': f'{dash_length},{gap_length}',
+            'stroke_linecap': 'butt',
+        },
+        'hidden_solid': {
+            'stroke': 'black',
+            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_linecap': 'butt',
+        },
+        'thin': {
+            'stroke': 'black',
+            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_linecap': 'butt',
+        },
+        '_params': {
+            'S': stroke_width,
+            'thin_width': thin_width,
+            'dash_length': dash_length,
+            'gap_length': gap_length,
+        },
+    }
+
+
+def snap_to_gost_scale(working_scale: float) -> float:
+    """Округлить масштаб до ближайшего стандартного значения ГОСТ 2.302-68.
+
+    Выбирает наибольший стандартный масштаб, не превышающий working_scale.
+
+    Args:
+        working_scale: «сырой» масштаб (отношение мм-на-листе / мм-модели).
+
+    Returns:
+        Стандартный масштаб ГОСТ.
+    """
+    for scale in GOST_REDUCTION_SCALES:
+        if scale <= working_scale * (1.0 + 1e-9):
+            return scale
+    return GOST_REDUCTION_SCALES[-1]
