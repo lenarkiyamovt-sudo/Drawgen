@@ -199,6 +199,9 @@ def _render_centerlines(
     cl_dot = params['cl_dot']
     dasharray = f"{cl_dash},{cl_gap},{cl_dot},{cl_gap}"
 
+    # Фиксированный вынос осевой за габариты тела (мм на листе)
+    cl_extension_mm = 1.0
+
     for cl in centerlines:
         if cl['type'] == 'centerline':
             x1 = float(cl['start'][0]) * scale + translate_x
@@ -210,6 +213,9 @@ def _render_centerlines(
             if length < 1.0:
                 continue
 
+            # Вынос на 1.0 мм за габариты тела с каждой стороны
+            (x1, y1), (x2, y2) = extend_line((x1, y1), (x2, y2), cl_extension_mm)
+
             line = dwg.line(start=(x1, y1), end=(x2, y2), **cl_style)
             line['stroke-dasharray'] = dasharray
             line['data-line-type'] = 'centerline'
@@ -218,7 +224,8 @@ def _render_centerlines(
         elif cl['type'] == 'crosshair':
             cx = float(cl['center'][0]) * scale + translate_x
             cy = float(cl['center'][1]) * scale + translate_y
-            size_mm = float(cl['size']) * scale
+            # Радиус в мм + вынос 1.0 мм
+            size_mm = float(cl['radius']) * scale + cl_extension_mm
 
             if size_mm < 0.5:
                 continue

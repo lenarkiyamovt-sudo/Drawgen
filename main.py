@@ -236,20 +236,18 @@ def _compute_centerlines(
         R = float(cyl["radius"])
 
         alignment = abs(float(axis @ view_dir))
-        ext = max(L * 0.15, R)
 
         if alignment > _AXIS_PERP_THRESHOLD:
             # Ось направлена на наблюдателя → перекрестие
             center_proj = (center @ M.T)[:2]
-            cross_size = R * 1.15
             result.append({
                 'type': 'crosshair',
                 'center': center_proj,
-                'size': cross_size,
+                'radius': R,
             })
         else:
-            # Осевая линия вдоль проекции оси
-            half = L / 2 + ext
+            # Осевая линия вдоль проекции оси (без выноса — он добавится в мм при рендеринге)
+            half = L / 2
             p1 = center - axis * half
             p2 = center + axis * half
             p1_proj = (p1 @ M.T)[:2]
