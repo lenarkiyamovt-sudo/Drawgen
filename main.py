@@ -11,6 +11,7 @@
 import argparse
 import logging
 import sys
+from typing import Dict, List
 
 import numpy as np
 
@@ -18,8 +19,9 @@ from stl_drawing.drawing.sheet import ESKDDrawingSheet
 from stl_drawing.io.stl_loader import STLLoadError, load_stl
 from stl_drawing.orientation.pca import orient_model_by_normals
 from stl_drawing.orientation.view_scorer import select_best_front_and_reorient
-from stl_drawing.projection.view_processor import ViewProcessor
+from stl_drawing.projection.view_processor import VIEW_DIRECTIONS, VIEW_MATRICES, ViewProcessor
 from stl_drawing.topology.processor import TopologyProcessor
+from stl_symmetry_detector import CylinderDetector
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -115,6 +117,13 @@ def run_pipeline(
         smooth_edges=topo.smooth_edges,
     )
 
+    # --- Шаг 4.5: Детекция цилиндров (осевые линии) ---
+    logger.info("=" * 60)
+    logger.info("Шаг 4.5: Детекция цилиндрических элементов")
+    logger.info("=" * 60)
+    cylinders = _detect_cylinders(final_verts, faces)
+    logger.info("Обнаружено цилиндров: %d", len(cylinders))
+
     # --- Шаг 5: Обработка видов ---
     logger.info("=" * 60)
     logger.info("Шаг 5: Генерация видов (%d проекций)", len(DRAWING_VIEWS))
@@ -124,7 +133,9 @@ def run_pipeline(
     for view_name in DRAWING_VIEWS:
         logger.info("  Обработка вида: %s", view_name)
         projected, visible, hidden = view_proc.process_view(view_name)
-        sheet.add_view_data(view_name, projected, visible, hidden)
+        centerlines = _compute_centerlines(cylinders, view_name)
+        sheet.add_view_data(view_name, projected, visible, hidden,
+                            centerlines=centerlines)
 
     # --- Шаг 6: Генерация чертежа ---
     logger.info("=" * 60)
@@ -150,6 +161,111 @@ def _compute_face_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray
     lengths = np.linalg.norm(cross, axis=1, keepdims=True)
     lengths[lengths < 1e-12] = 1.0
     return (cross / lengths).astype(np.float32)
+
+
+def _detect_cylinders(vertices: np.ndarray, faces: np.ndarray) -> List[dict]:
+    """Детекция цилиндрических элементов для построения осевых линий.
+
+    Args:
+        vertices: ориентированные вершины (N, 3).
+        faces: грани (M, 3).
+
+    Returns:
+        Список цилиндров с полями axis, center, radius, length, type.
+    """
+    vectors = vertices[faces].astype(np.float64)
+    e1 = vectors[:, 1] - vectors[:, 0]
+    e2 = vectors[:, 2] - vectors[:, 0]
+    cr = np.cross(e1, e2)
+    nm = np.linalg.norm(cr, axis=1, keepdims=True)
+    nm = np.where(nm < 1e-12, 1.0, nm)
+
+    md = {
+        "vectors": vectors,
+        "normals": cr / nm,
+        "centroids": vectors.mean(axis=1),
+        "areas": np.linalg.norm(cr, axis=1) * 0.5,
+    }
+    offset = vectors.reshape(-1, 3).mean(axis=0)
+
+    detector = CylinderDetector()
+    cyls = detector.detect(md, offset)
+
+    # Восстановить центры в исходную систему координат
+    for c in cyls:
+        c["center"] = c["center"] + offset
+
+    return cyls
+
+
+# Порог выравнивания оси цилиндра с направлением взгляда
+_AXIS_PERP_THRESHOLD = 0.95  # ось ⊥ плоскости вида → перекрестие
+
+
+def _compute_centerlines(
+    cylinders: List[dict],
+    view_name: str,
+) -> List[Dict]:
+    """Вычислить 2D-проекции осевых линий цилиндров на данный вид.
+
+    Для каждого цилиндра:
+      - Если ось почти перпендикулярна плоскости вида (торец):
+        рисуем перекрестие (горизонтальная + вертикальная осевые).
+      - Иначе: рисуем осевую линию вдоль проекции оси.
+
+    Координаты возвращаются в единицах модели (как visible/hidden lines).
+
+    Args:
+        cylinders: результат _detect_cylinders().
+        view_name: имя вида ('front', 'top', и т.д.).
+
+    Returns:
+        Список словарей с описанием осевых линий.
+    """
+    if not cylinders or view_name not in VIEW_MATRICES:
+        return []
+
+    M = VIEW_MATRICES[view_name]
+    view_dir = VIEW_DIRECTIONS[view_name]
+    result: List[Dict] = []
+
+    for cyl in cylinders:
+        axis = np.asarray(cyl["axis"], dtype=np.float64)
+        center = np.asarray(cyl["center"], dtype=np.float64)
+        L = float(cyl["length"])
+        R = float(cyl["radius"])
+
+        alignment = abs(float(axis @ view_dir))
+        ext = max(L * 0.15, R)
+
+        if alignment > _AXIS_PERP_THRESHOLD:
+            # Ось направлена на наблюдателя → перекрестие
+            center_proj = (center @ M.T)[:2]
+            cross_size = R * 1.15
+            result.append({
+                'type': 'crosshair',
+                'center': center_proj,
+                'size': cross_size,
+            })
+        else:
+            # Осевая линия вдоль проекции оси
+            half = L / 2 + ext
+            p1 = center - axis * half
+            p2 = center + axis * half
+            p1_proj = (p1 @ M.T)[:2]
+            p2_proj = (p2 @ M.T)[:2]
+
+            length_2d = float(np.linalg.norm(p2_proj - p1_proj))
+            if length_2d < R * 0.1:
+                continue
+
+            result.append({
+                'type': 'centerline',
+                'start': p1_proj,
+                'end': p2_proj,
+            })
+
+    return result
 
 
 # ---------------------------------------------------------------------------

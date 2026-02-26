@@ -11,7 +11,7 @@ ESKDDrawingSheet — главный класс генерации ЕСКД-че�
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import svgwrite
@@ -90,6 +90,7 @@ class ESKDDrawingSheet:
         projected_vertices: np.ndarray,
         visible_lines: List[Tuple],
         hidden_lines: List[Tuple],
+        centerlines: Optional[List[dict]] = None,
     ) -> None:
         """Добавить данные одного вида.
 
@@ -98,6 +99,7 @@ class ESKDDrawingSheet:
             projected_vertices: проекция вершин (N, 3) — XY + Z-глубина.
             visible_lines: список (pA, pB) видимых отрезков.
             hidden_lines:  список (pA, pB) скрытых отрезков.
+            centerlines: осевые линии цилиндров для данного вида.
         """
         bbox = self._compute_bbox(projected_vertices)
         self.views_data[view_name] = {
@@ -105,6 +107,7 @@ class ESKDDrawingSheet:
             'visible': visible_lines,
             'hidden':  hidden_lines,
             'bbox':    bbox,
+            'centerlines': centerlines or [],
         }
 
     # ------------------------------------------------------------------
@@ -180,6 +183,7 @@ class ESKDDrawingSheet:
                 translate_x,
                 translate_y,
                 eskd_styles,
+                centerlines=view_data.get('centerlines', []),
             )
             views_group.add(view_group)
 

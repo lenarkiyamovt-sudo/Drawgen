@@ -53,6 +53,17 @@ def calculate_line_parameters(
 
     thin_width = stroke_width / 2.0  # ГОСТ: тонкая линия = S/2
 
+    # ГОСТ 2.303-68: штрихпунктирная тонкая (осевые/центровые линии)
+    # Штрих 5–30 мм, промежутки 3–5 мм (включая точку)
+    if front_view_mm < 40:
+        cl_dash, cl_gap, cl_dot = 5.0, 1.0, 0.5
+    elif front_view_mm < 80:
+        cl_dash, cl_gap, cl_dot = 8.0, 1.0, 0.5
+    elif front_view_mm < 150:
+        cl_dash, cl_gap, cl_dot = 12.0, 1.5, 0.5
+    else:
+        cl_dash, cl_gap, cl_dot = 15.0, 2.0, 0.5
+
     return {
         'visible': {
             'stroke': 'black',
@@ -75,11 +86,19 @@ def calculate_line_parameters(
             'stroke_width': f'{thin_width:.2f}mm',
             'stroke_linecap': 'butt',
         },
+        'centerline': {
+            'stroke': 'red',
+            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_linecap': 'butt',
+        },
         '_params': {
             'S': stroke_width,
             'thin_width': thin_width,
             'dash_length': dash_length,
             'gap_length': gap_length,
+            'cl_dash': cl_dash,
+            'cl_gap': cl_gap,
+            'cl_dot': cl_dot,
         },
     }
 
