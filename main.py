@@ -6,12 +6,15 @@
 
 Пример:
     python main.py "detail.stl" --output "drawing.svg"
+    python main.py "detail.stl" --output "drawing.svg" --dxf  # + DXF
+    python main.py "detail.stl" --config project.eskd.json    # с конфигом
 """
 
 import argparse
 import logging
 import sys
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional
 
 # Обеспечить поддержку Unicode (emoji и т.п.) на Windows-консоли
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
@@ -27,7 +30,8 @@ from stl_drawing.orientation.pca import orient_model_by_normals
 from stl_drawing.orientation.view_scorer import select_best_front_and_reorient
 from stl_drawing.projection.view_processor import VIEW_DIRECTIONS, VIEW_MATRICES, ViewProcessor
 from stl_drawing.topology.processor import TopologyProcessor
-from stl_symmetry_detector import CylinderDetector
+from stl_drawing.features import CylinderDetector
+from stl_drawing.project_config import ProjectConfig, load_config, apply_config_to_globals
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -58,8 +62,10 @@ def run_pipeline(
     part_name: str = "",
     org_name: str = "",
     surname: str = "",
+    config: Optional[ProjectConfig] = None,
+    output_dxf: Optional[str] = None,
 ) -> str:
-    """Полный пайплайн: STL → ЕСКД SVG.
+    """Полный пайплайн: STL → ЕСКД SVG (+ DXF).
 
     Шаги:
       1. Загрузка STL.
@@ -67,7 +73,7 @@ def run_pipeline(
       3. Выбор лучшего главного вида, переориентация.
       4. Топологическая обработка: классификация рёбер.
       5. Обработка 6 видов (проекция + hidden line removal).
-      6. Генерация SVG ЕСКД.
+      6. Генерация SVG ЕСКД (+ DXF при наличии output_dxf).
 
     Args:
         stl_path: путь к STL-файлу.
@@ -76,6 +82,8 @@ def run_pipeline(
         part_name: наименование изделия для штампа.
         org_name: наименование организации для штампа.
         surname: фамилия подписанта для штампа.
+        config: конфигурация проекта (опционально).
+        output_dxf: путь к выходному DXF (опционально).
 
     Returns:
         Путь к сохранённому SVG-файлу.
@@ -84,6 +92,18 @@ def run_pipeline(
         STLLoadError: если файл не загружен.
         RuntimeError: при ошибках в пайплайне.
     """
+    # Применить конфигурацию к глобальным параметрам
+    if config is not None:
+        apply_config_to_globals(config)
+        # Использовать значения из конфига если не указаны явно
+        if not designation and config.title_block.document_number:
+            designation = config.title_block.document_number
+        if not part_name and config.title_block.document_name:
+            part_name = config.title_block.document_name
+        if not org_name and config.title_block.organization:
+            org_name = config.title_block.organization
+        if not surname and config.title_block.designer:
+            surname = config.title_block.designer
     # --- Шаг 1: Загрузка STL ---
     logger.info("=" * 60)
     logger.info("Шаг 1: Загрузка STL")
@@ -153,7 +173,16 @@ def run_pipeline(
     sheet.set_metadata(designation, part_name, org_name, surname)
     result_path = sheet.generate_drawing(output_svg)
 
-    logger.info("Готово. Чертёж: %s", result_path)
+    logger.info("Готово. SVG: %s", result_path)
+
+    # --- Шаг 7: Генерация DXF (опционально) ---
+    if output_dxf:
+        logger.info("=" * 60)
+        logger.info("Шаг 7: Генерация DXF-чертежа")
+        logger.info("=" * 60)
+        _generate_dxf(sheet, output_dxf)
+        logger.info("Готово. DXF: %s", output_dxf)
+
     return result_path
 
 
@@ -209,6 +238,99 @@ def _detect_cylinders(vertices: np.ndarray, faces: np.ndarray) -> List[dict]:
 
 # Порог выравнивания оси цилиндра с направлением взгляда
 _AXIS_PERP_THRESHOLD = 0.95  # ось ⊥ плоскости вида → перекрестие
+
+
+def _generate_dxf(sheet: ESKDDrawingSheet, output_path: str) -> None:
+    """Генерация DXF-файла из данных чертежа.
+
+    Args:
+        sheet: объект ESKDDrawingSheet с данными видов.
+        output_path: путь к выходному DXF-файлу.
+    """
+    from stl_drawing.drawing.dxf_renderer import DxfRenderer, DxfStyle
+
+    renderer = DxfRenderer()
+
+    # Получаем размеры формата из sheet
+    width_mm = sheet.sheet_w
+    height_mm = sheet.sheet_h
+    scale = sheet.scale
+
+    renderer.create_drawing(width_mm, height_mm)
+
+    # Добавляем рамку
+    frame_style = DxfStyle(layer='FRAME')
+    margin = 5.0
+    renderer.add_rectangle((margin, margin), width_mm - 2*margin, height_mm - 2*margin, frame_style)
+
+    # Добавляем линии из всех видов
+    contour_style = DxfStyle(layer='CONTOUR')
+    hidden_style = DxfStyle(layer='HIDDEN')
+    center_style = DxfStyle(layer='CENTER')
+
+    for view_name, view_layout in sheet.layout.items():
+        view_data = sheet.active_views.get(view_name, {})
+
+        # Позиция вида на листе
+        translate_x = view_layout['x'] + view_layout['offset_x']
+        translate_y = view_layout['y'] + view_layout['offset_y']
+
+        # Visible lines (формат: (start_array, end_array) или (x1, y1, x2, y2))
+        for line in view_data.get('visible', []):
+            if isinstance(line, tuple) and len(line) == 2:
+                # Формат: (array([x1,y1]), array([x2,y2]))
+                start, end = line
+                x1, y1 = float(start[0]), float(start[1])
+                x2, y2 = float(end[0]), float(end[1])
+            else:
+                x1, y1, x2, y2 = line[:4]
+            renderer.add_line(
+                (x1 * scale + translate_x, y1 * scale + translate_y),
+                (x2 * scale + translate_x, y2 * scale + translate_y),
+                contour_style
+            )
+
+        # Hidden lines
+        for line in view_data.get('hidden', []):
+            if isinstance(line, tuple) and len(line) == 2:
+                start, end = line
+                x1, y1 = float(start[0]), float(start[1])
+                x2, y2 = float(end[0]), float(end[1])
+            else:
+                x1, y1, x2, y2 = line[:4]
+            renderer.add_line(
+                (x1 * scale + translate_x, y1 * scale + translate_y),
+                (x2 * scale + translate_x, y2 * scale + translate_y),
+                hidden_style
+            )
+
+        # Centerlines
+        for cl in view_data.get('centerlines', []):
+            if cl.get('type') == 'centerline':
+                start = cl['start']
+                end = cl['end']
+                renderer.add_line(
+                    (start[0] * scale + translate_x, start[1] * scale + translate_y),
+                    (end[0] * scale + translate_x, end[1] * scale + translate_y),
+                    center_style
+                )
+            elif cl.get('type') == 'crosshair':
+                cx, cy = cl['center']
+                r = cl['radius'] * scale
+                # Horizontal
+                renderer.add_line(
+                    (cx * scale - r*1.2 + translate_x, cy * scale + translate_y),
+                    (cx * scale + r*1.2 + translate_x, cy * scale + translate_y),
+                    center_style
+                )
+                # Vertical
+                renderer.add_line(
+                    (cx * scale + translate_x, cy * scale - r*1.2 + translate_y),
+                    (cx * scale + translate_x, cy * scale + r*1.2 + translate_y),
+                    center_style
+                )
+
+    renderer.save(output_path)
 
 
 def _compute_centerlines(
@@ -294,6 +416,22 @@ def _parse_args() -> argparse.Namespace:
         help="Путь к выходному SVG-файлу (по умолчанию: unified_eskd_drawing.svg).",
     )
     parser.add_argument(
+        "--dxf",
+        action="store_true",
+        help="Дополнительно генерировать DXF-файл.",
+    )
+    parser.add_argument(
+        "--dxf-output",
+        default=None,
+        dest="dxf_output",
+        help="Путь к выходному DXF-файлу (по умолчанию: как SVG, но с .dxf).",
+    )
+    parser.add_argument(
+        "--config", "-c",
+        default=None,
+        help="Путь к конфигурационному файлу .eskd.json.",
+    )
+    parser.add_argument(
         "--designation", "-d",
         default="",
         help="Обозначение документа (Графа 2, 26), напр. 'АБВГ.123456.001'.",
@@ -321,6 +459,21 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
+    # Загрузить конфигурацию
+    config = load_config(
+        stl_path=args.stl_file,
+        explicit_config=args.config,
+    )
+
+    # Определить путь к DXF
+    output_dxf = None
+    if args.dxf or args.dxf_output:
+        if args.dxf_output:
+            output_dxf = args.dxf_output
+        else:
+            # Заменить расширение .svg на .dxf
+            output_dxf = str(Path(args.output).with_suffix('.dxf'))
+
     try:
         run_pipeline(
             args.stl_file,
@@ -329,6 +482,8 @@ def main() -> None:
             part_name=args.part_name,
             org_name=args.org_name,
             surname=args.surname,
+            config=config,
+            output_dxf=output_dxf,
         )
     except STLLoadError as exc:
         logger.critical("Ошибка загрузки STL: %s", exc)

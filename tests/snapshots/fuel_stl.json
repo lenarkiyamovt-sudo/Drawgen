@@ -1,0 +1,16 @@
+{
+  "total_elements": 1115,
+  "path_complexity": 716,
+  "text_hash": "c40ff103",
+  "structure": {
+    "groups": 25,
+    "paths": 18,
+    "lines": 1013,
+    "polylines": 0,
+    "circles": 0,
+    "texts": 36,
+    "rects": 23,
+    "viewbox_width": 841.0,
+    "viewbox_height": 594.0
+  }
+}

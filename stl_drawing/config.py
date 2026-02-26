@@ -4,7 +4,140 @@
 Все магические числа собраны здесь с объяснением их роли.
 """
 
+from enum import Enum
+from typing import Dict, Optional
+
 import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# ГОСТ 2.303-68 — Типы линий ЕСКД (ESKDLineType)
+# ---------------------------------------------------------------------------
+
+class ESKDLineType(Enum):
+    """Типы линий чертежа по ГОСТ 2.303-68.
+
+    Каждый тип содержит абсолютные значения:
+      - stroke_width: толщина линии в мм
+      - pattern: SVG stroke-dasharray (None для сплошных)
+      - desc: описание по ГОСТ
+      - priority: приоритет отрисовки (меньше = поверх)
+      - is_wave: флаг волнистой линии (опционально)
+    """
+    # Сплошная основная — видимый контур
+    SOLID = {
+        "stroke_width": 1.0,
+        "pattern": None,
+        "desc": "Сплошная основная",
+        "priority": 2,
+    }
+    # Сплошная тонкая — размерные, выносные линии
+    THIN = {
+        "stroke_width": 0.25,
+        "pattern": None,
+        "desc": "Сплошная тонкая",
+        "priority": 1,
+    }
+    # Штриховая — невидимый контур
+    DASHED = {
+        "stroke_width": 0.3,
+        "pattern": "8,3",
+        "desc": "Штриховая",
+        "priority": 3,
+    }
+    # Штрихпунктирная тонкая — осевые, центровые линии
+    CENTER = {
+        "stroke_width": 0.3,
+        "pattern": "15,3,3,3",
+        "desc": "Осевая",
+        "priority": 0,
+    }
+    # Штрихпунктирная с двумя точками — сгибы развёрток
+    DOTTED = {
+        "stroke_width": 0.3,
+        "pattern": "5,2,1,2",
+        "desc": "Штрихпунктирная",
+        "priority": 4,
+    }
+    # Сплошная волнистая — линии обрыва
+    WAVELINE = {
+        "stroke_width": 0.3,
+        "pattern": None,
+        "desc": "Волнистая",
+        "is_wave": True,
+        "priority": 5,
+    }
+    # Разомкнутая — линии сечений
+    SECTION = {
+        "stroke_width": 0.7,
+        "pattern": None,
+        "desc": "Разомкнутая",
+        "priority": 6,
+    }
+    # Рамка — основная линия рамки
+    FRAME = {
+        "stroke_width": 0.5,
+        "pattern": None,
+        "desc": "Линия рамки",
+        "priority": 10,
+    }
+    # Рамка тонкая — внешняя граница листа
+    FRAME_THIN = {
+        "stroke_width": 0.18,
+        "pattern": None,
+        "desc": "Тонкая линия рамки",
+        "priority": 10,
+    }
+    # Штамп — линии штампа тонкие
+    STAMP_THIN = {
+        "stroke_width": 0.18,
+        "pattern": None,
+        "desc": "Тонкая линия штампа",
+        "priority": 10,
+    }
+
+    @property
+    def stroke_width(self) -> float:
+        """Толщина линии в мм (абсолютное значение)."""
+        return self.value["stroke_width"]
+
+    @property
+    def svg_pattern(self) -> Optional[str]:
+        """SVG stroke-dasharray или None для сплошной."""
+        return self.value.get("pattern")
+
+    @property
+    def description(self) -> str:
+        """Описание типа линии по ГОСТ."""
+        return self.value["desc"]
+
+    @property
+    def draw_priority(self) -> int:
+        """Приоритет отрисовки (меньше = поверх)."""
+        return self.value["priority"]
+
+    @property
+    def is_wavy(self) -> bool:
+        """True для волнистой линии."""
+        return self.value.get("is_wave", False)
+
+    def get_svg_style(self, color: str = "black") -> Dict[str, str]:
+        """Получить SVG-атрибуты стиля для данного типа линии.
+
+        Args:
+            color: цвет линии
+
+        Returns:
+            Словарь SVG-атрибутов
+        """
+        style = {
+            "stroke": color,
+            "stroke-width": f"{self.stroke_width}mm",
+            "stroke-linecap": "butt",
+        }
+        if self.svg_pattern:
+            style["stroke-dasharray"] = self.svg_pattern
+        return style
 
 # ---------------------------------------------------------------------------
 # Точность геометрических вычислений

@@ -23,6 +23,11 @@ from stl_drawing.config import (
 )
 
 
+def _filter_svg_attrs(style_dict: dict) -> dict:
+    """Filter out internal metadata keys (starting with _) from style dict."""
+    return {k: v for k, v in style_dict.items() if not k.startswith('_')}
+
+
 # ---------------------------------------------------------------------------
 # Типы данных для размещённых размеров
 # ---------------------------------------------------------------------------
@@ -244,7 +249,8 @@ def _create_dim_line(
     Returns:
         SVG line-элемент.
     """
-    line = dwg.line(start=start, end=end, **line_style)
+    filtered_style = _filter_svg_attrs(line_style)
+    line = dwg.line(start=start, end=end, **filtered_style)
     line['data-line-type'] = 'dimension'
     return line
 
@@ -265,7 +271,8 @@ def _create_extension_line(
     Returns:
         SVG line-элемент.
     """
-    line = dwg.line(start=start, end=end, **line_style)
+    filtered_style = _filter_svg_attrs(line_style)
+    line = dwg.line(start=start, end=end, **filtered_style)
     line['data-line-type'] = 'extension'
     return line
 

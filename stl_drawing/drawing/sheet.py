@@ -64,6 +64,9 @@ class ESKDDrawingSheet:
         self.sheet_h: float = 0.0
         self.format_name: Optional[str] = None
         self.metadata: dict = {}
+        # Сохраняются после generate_drawing для DXF-генерации
+        self.layout: Dict[str, Dict] = {}
+        self.active_views: Dict[str, Dict] = {}
 
     def set_metadata(
         self,
@@ -162,6 +165,10 @@ class ESKDDrawingSheet:
 
         # 3. Компоновка
         layout = arrange_views(active_views, self.scale, self.sheet_w, self.sheet_h)
+
+        # Сохранить для возможной генерации DXF
+        self.layout = layout
+        self.active_views = active_views
 
         # 4. Параметры линий
         fv_mm = front_view_size_mm(active_views, self.scale)

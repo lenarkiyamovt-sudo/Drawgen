@@ -1,0 +1,11 @@
+{
+    "title_block": {
+        "organization": "ООО ТестОрг",
+        "designer": "Иванов И.И.",
+        "document_name": "Бак топливный",
+        "document_number": "ТЕСТ.123456.001"
+    },
+    "lines": {
+        "sharp_angle_deg": 15.0
+    }
+}
