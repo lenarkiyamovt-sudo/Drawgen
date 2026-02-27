@@ -3,7 +3,10 @@ SVG-рендеринг размерных линий по ГОСТ 2.307-2011.
 
 Содержит:
 - render_dimensions      — отрисовка всех размеров в SVG-группу
-- _create_arrow          — стрелка размерной линии
+- _create_arrow          — стрелка (заполненный треугольник)
+- _create_tick_marker    — засечка 45° (ГОСТ 2.307 для малых размеров)
+- _create_dot_marker     — точка (ГОСТ 2.307 для очень малых размеров)
+- _render_arrow_by_style — dispatch стрелки по ArrowStyle
 - _create_dim_text       — размерная надпись (ГОСТ 2.304-81 тип Б)
 - _create_dim_line       — размерная линия (тонкая сплошная)
 - _create_extension_line — выносная линия (тонкая сплошная)
@@ -17,9 +20,11 @@ import svgwrite
 from stl_drawing.config import (
     DIM_ARROW_LENGTH,
     DIM_ARROW_WIDTH,
+    DIM_DOT_RADIUS,
     DIM_FONT_FAMILY,
     DIM_TEXT_GAP,
     DIM_TEXT_HEIGHT,
+    DIM_TICK_LENGTH,
 )
 
 
@@ -43,6 +48,8 @@ class PlacedDimension:
         'arrow_a_pos', 'arrow_a_angle',
         'arrow_b_pos', 'arrow_b_angle',
         'text_pos',
+        'arrow_a_style', 'arrow_b_style',
+        'leader_lines',
     )
 
     def __init__(
@@ -61,6 +68,9 @@ class PlacedDimension:
         arrow_b_pos: Tuple[float, float],
         arrow_b_angle: float,
         text_pos: Tuple[float, float],
+        arrow_a_style: str = 'filled',
+        arrow_b_style: str = 'filled',
+        leader_lines: List[Tuple] = None,
     ):
         self.dim_type = dim_type
         self.text_value = text_value
@@ -76,6 +86,9 @@ class PlacedDimension:
         self.arrow_b_pos = arrow_b_pos
         self.arrow_b_angle = arrow_b_angle
         self.text_pos = text_pos
+        self.arrow_a_style = arrow_a_style
+        self.arrow_b_style = arrow_b_style
+        self.leader_lines = leader_lines or []
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +122,8 @@ def render_dimensions(
         single['data-dim-type'] = pd.dim_type
         single['data-dim-value'] = pd.text_value
 
-        # Выносные линии
-        if pd.dim_type != 'diameter':
+        # Выносные линии (нет у диаметров и радиусов)
+        if pd.dim_type not in ('diameter', 'radius'):
             ext_a = _create_extension_line(
                 dwg, pd.ext_line_a_start, pd.ext_line_a_end, line_style)
             ext_b = _create_extension_line(
@@ -123,13 +136,19 @@ def render_dimensions(
             dwg, pd.dim_line_start, pd.dim_line_end, line_style)
         single.add(dim_line)
 
-        # Стрелки
-        arrow_a = _create_arrow(
-            dwg, pd.arrow_a_pos, pd.arrow_a_angle, arrow_params)
-        arrow_b = _create_arrow(
-            dwg, pd.arrow_b_pos, pd.arrow_b_angle, arrow_params)
-        single.add(arrow_a)
-        single.add(arrow_b)
+        # Линии-выноски (лидеры)
+        for ll_start, ll_end in pd.leader_lines:
+            leader = _create_dim_line(dwg, ll_start, ll_end, line_style)
+            leader['data-line-type'] = 'leader'
+            single.add(leader)
+
+        # Стрелки (dispatch по ArrowStyle)
+        _render_arrow_by_style(
+            dwg, single, pd.arrow_a_pos, pd.arrow_a_angle,
+            pd.arrow_a_style, arrow_params, line_style)
+        _render_arrow_by_style(
+            dwg, single, pd.arrow_b_pos, pd.arrow_b_angle,
+            pd.arrow_b_style, arrow_params, line_style)
 
         # Фон текста (белый прямоугольник для читаемости)
         text_bg = _create_text_background(
@@ -185,6 +204,99 @@ def _create_arrow(
         transform=f"translate({x:.4f},{y:.4f}) rotate({angle_deg:.2f})",
     )
     return arrow
+
+
+def _create_tick_marker(
+    dwg: svgwrite.Drawing,
+    position: Tuple[float, float],
+    angle_deg: float,
+    line_style: dict,
+) -> svgwrite.shapes.Line:
+    """Создать засечку 45° (ГОСТ 2.307-2011 для малых размеров).
+
+    Засечка — короткая линия под 45° к размерной линии,
+    используется когда стрелки не помещаются между выносными.
+
+    Args:
+        dwg: SVG-документ.
+        position: центр засечки (мм на листе).
+        angle_deg: угол размерной линии (градусы, 0 = горизонтальная).
+        line_style: стиль линии (толщина, цвет).
+
+    Returns:
+        SVG line-элемент.
+    """
+    half = DIM_TICK_LENGTH / 2.0
+    # Засечка под 45° к направлению размерной линии
+    tick_angle = math.radians(angle_deg + 45.0)
+    dx = half * math.cos(tick_angle)
+    dy = half * math.sin(tick_angle)
+
+    x, y = position
+    filtered = _filter_svg_attrs(line_style)
+    line = dwg.line(
+        start=(x - dx, y - dy),
+        end=(x + dx, y + dy),
+        **filtered,
+    )
+    line['data-line-type'] = 'tick'
+    return line
+
+
+def _create_dot_marker(
+    dwg: svgwrite.Drawing,
+    position: Tuple[float, float],
+) -> svgwrite.shapes.Circle:
+    """Создать точку-маркер (ГОСТ 2.307-2011 для очень малых размеров).
+
+    Используется когда расстояние между выносными < 2 мм.
+
+    Args:
+        dwg: SVG-документ.
+        position: центр точки (мм на листе).
+
+    Returns:
+        SVG circle-элемент.
+    """
+    x, y = position
+    circle = dwg.circle(
+        center=(x, y),
+        r=DIM_DOT_RADIUS,
+        fill='black',
+        stroke='none',
+    )
+    return circle
+
+
+def _render_arrow_by_style(
+    dwg: svgwrite.Drawing,
+    group: svgwrite.container.Group,
+    position: Tuple[float, float],
+    angle_deg: float,
+    style: str,
+    arrow_params: dict,
+    line_style: dict,
+) -> None:
+    """Dispatch: отрисовать стрелку/засечку/точку по стилю.
+
+    Args:
+        dwg: SVG-документ.
+        group: SVG-группа размера (добавить элемент).
+        position: позиция маркера (мм на листе).
+        angle_deg: угол поворота (градусы, 0 = →).
+        style: 'filled', 'tick', 'dot', 'none'.
+        arrow_params: параметры стрелки.
+        line_style: стиль линии (для засечек).
+    """
+    if style == 'none':
+        return
+    elif style == 'dot':
+        group.add(_create_dot_marker(dwg, position))
+    elif style == 'tick':
+        group.add(_create_tick_marker(dwg, position, angle_deg, line_style))
+    else:
+        # 'filled' — стандартная стрелка
+        group.add(_create_arrow(dwg, position, angle_deg, arrow_params))
 
 
 def _create_dim_text(

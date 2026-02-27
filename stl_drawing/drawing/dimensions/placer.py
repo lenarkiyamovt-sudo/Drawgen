@@ -21,6 +21,7 @@
 
 import logging
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -34,6 +35,7 @@ from stl_drawing.config import (
     DIM_TEXT_GAP,
     DIM_TEXT_HEIGHT,
 )
+from stl_drawing.drawing.dimensions.builders import build_dimension
 from stl_drawing.drawing.dimensions.extractor import DimensionCandidate
 from stl_drawing.drawing.dimensions.renderer import PlacedDimension
 
@@ -83,8 +85,8 @@ def _compute_dim_bbox(pd: PlacedDimension) -> _BBox:
         pd.text_pos[1],
     ]
 
-    # Для не-диаметров добавить выносные линии
-    if pd.dim_type != 'diameter':
+    # Для не-диаметров и не-радиусов добавить выносные линии
+    if pd.dim_type not in ('diameter', 'radius'):
         points_x.extend([
             pd.ext_line_a_start[0], pd.ext_line_a_end[0],
             pd.ext_line_b_start[0], pd.ext_line_b_end[0],
@@ -196,7 +198,9 @@ def _place_view_dims(
     filtered = []
     for d in dims:
         paper_size = d.value_mm * scale
-        if paper_size < DIM_MIN_DISPLAYABLE:
+        # Для радиусов: реальный размер элемента = диаметр (2*R)
+        effective_paper_size = paper_size * 2.0 if d.dim_type == 'radius' else paper_size
+        if effective_paper_size < DIM_MIN_DISPLAYABLE:
             logger.debug(
                 "Размер %.1f мм (%.1f мм на бумаге) отфильтрован как слишком мелкий",
                 d.value_mm, paper_size,
@@ -215,6 +219,8 @@ def _place_view_dims(
     for d in filtered:
         side = d.preferred_side
         if d.dim_type == 'diameter':
+            side = d.preferred_side if d.preferred_side in groups else 'right'
+        elif d.dim_type == 'radius':
             side = d.preferred_side if d.preferred_side in groups else 'right'
         elif d.dim_type == 'linear_horizontal':
             side = d.preferred_side if d.preferred_side in ('top', 'bottom') else 'bottom'
@@ -237,14 +243,13 @@ def _place_view_dims(
             for bump in range(6):
                 current_offset = offset + bump * DIM_NEXT_OFFSET
 
-                if dim.dim_type == 'diameter':
-                    pd = _place_diameter(dim, scale, tx, ty, vx, vy, vw, vh, current_offset, side)
-                elif dim.dim_type == 'linear_horizontal':
-                    pd = _place_horizontal(dim, scale, tx, ty, vx, vy, vw, vh, current_offset, side)
-                elif dim.dim_type == 'linear_vertical':
-                    pd = _place_vertical(dim, scale, tx, ty, vx, vy, vw, vh, current_offset, side)
-                else:
+                geom = build_dimension(
+                    dim, scale, tx, ty, vx, vy, vw, vh,
+                    current_offset, side,
+                )
+                if geom is None:
                     break
+                pd = geom.to_placed_dimension()
 
                 if pd is None:
                     break
@@ -297,7 +302,15 @@ def _place_horizontal(
     offset: float,
     side: str,
 ) -> PlacedDimension:
-    """Разместить горизонтальный линейный размер."""
+    """Разместить горизонтальный линейный размер.
+
+    .. deprecated::
+        Используйте ``build_dimension()`` из ``builders.py``.
+    """
+    warnings.warn(
+        "_place_horizontal deprecated, use build_dimension()",
+        DeprecationWarning, stacklevel=2,
+    )
     # Якоря в координатах листа
     ax1 = dim.anchor_a[0] * scale + tx
     ax2 = dim.anchor_b[0] * scale + tx
@@ -354,7 +367,15 @@ def _place_vertical(
     offset: float,
     side: str,
 ) -> PlacedDimension:
-    """Разместить вертикальный линейный размер."""
+    """Разместить вертикальный линейный размер.
+
+    .. deprecated::
+        Используйте ``build_dimension()`` из ``builders.py``.
+    """
+    warnings.warn(
+        "_place_vertical deprecated, use build_dimension()",
+        DeprecationWarning, stacklevel=2,
+    )
     # Якоря в координатах листа
     ay1 = dim.anchor_a[1] * scale + ty
     ay2 = dim.anchor_b[1] * scale + ty
@@ -410,7 +431,14 @@ def _place_diameter(
 
     Рисует размерную линию через центр окружности,
     горизонтально, с текстом Ø{значение}.
+
+    .. deprecated::
+        Используйте ``build_dimension()`` из ``builders.py``.
     """
+    warnings.warn(
+        "_place_diameter deprecated, use build_dimension()",
+        DeprecationWarning, stacklevel=2,
+    )
     if dim.center is None or dim.radius is None:
         return None
 

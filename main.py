@@ -62,6 +62,8 @@ def run_pipeline(
     part_name: str = "",
     org_name: str = "",
     surname: str = "",
+    material: str = "",
+    weight: str = "",
     config: Optional[ProjectConfig] = None,
     output_dxf: Optional[str] = None,
     thickness_scale: float = 1.0,
@@ -83,6 +85,8 @@ def run_pipeline(
         part_name: наименование изделия для штампа.
         org_name: наименование организации для штампа.
         surname: фамилия подписанта для штампа.
+        material: обозначение материала детали (Графа 3).
+        weight: масса изделия (Графа 5).
         config: конфигурация проекта (опционально).
         output_dxf: путь к выходному DXF (опционально).
 
@@ -105,6 +109,10 @@ def run_pipeline(
             org_name = config.title_block.organization
         if not surname and config.title_block.designer:
             surname = config.title_block.designer
+        if not material and config.title_block.material:
+            material = config.title_block.material
+        if not weight and config.title_block.mass is not None:
+            weight = str(config.title_block.mass)
     # --- Шаг 1: Загрузка STL ---
     logger.info("=" * 60)
     logger.info("Шаг 1: Загрузка STL")
@@ -171,7 +179,8 @@ def run_pipeline(
     logger.info("=" * 60)
     logger.info("Шаг 6: Генерация ЕСКД-чертежа")
     logger.info("=" * 60)
-    sheet.set_metadata(designation, part_name, org_name, surname)
+    sheet.set_metadata(designation, part_name, org_name, surname,
+                        material=material, weight=weight)
     result_path = sheet.generate_drawing(output_svg, thickness_scale=thickness_scale)
 
     logger.info("Готово. SVG: %s", result_path)
@@ -482,6 +491,16 @@ def _parse_args() -> argparse.Namespace:
         help="Фамилия подписанта (Разраб./Пров./Т.контр./Н.контр./Утв.).",
     )
     parser.add_argument(
+        "--material", "-m",
+        default="",
+        help="Обозначение материала детали (Графа 3), напр. 'Сталь 45 ГОСТ 1050-2013'.",
+    )
+    parser.add_argument(
+        "--weight",
+        default="",
+        help="Масса изделия (Графа 5), напр. '5.2'.",
+    )
+    parser.add_argument(
         "--thickness-scale", "-t",
         type=float,
         default=1.0,
@@ -517,6 +536,8 @@ def main() -> None:
             part_name=args.part_name,
             org_name=args.org_name,
             surname=args.surname,
+            material=args.material,
+            weight=args.weight,
             config=config,
             output_dxf=output_dxf,
             thickness_scale=args.thickness_scale,

@@ -17,6 +17,7 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import numpy as np
 
+from stl_drawing.config import DIM_RADIUS_THRESHOLD
 from stl_drawing.projection.view_processor import VIEW_DIRECTIONS, VIEW_MATRICES
 
 logger = logging.getLogger(__name__)
@@ -196,19 +197,35 @@ def _extract_cylinder_diameters(
         canonical = f'cylinder_diameter_{i}'
 
         if alignment > _AXIS_PERP_THRESHOLD:
-            # Перекрестие: диаметр виден как окружность → размер Ø
-            results.append(DimensionCandidate(
-                dim_type='diameter',
-                value_mm=diameter,
-                canonical_key=canonical,
-                view_name=view_name,
-                anchor_a=(cx - radius, cy),
-                anchor_b=(cx + radius, cy),
-                preferred_side='right',
-                priority=1,
-                center=(cx, cy),
-                radius=radius,
-            ))
+            # Перекрестие: окружность видна полностью
+            if radius <= DIM_RADIUS_THRESHOLD:
+                # Малый радиус → показать как R (скругление, фаска)
+                results.append(DimensionCandidate(
+                    dim_type='radius',
+                    value_mm=radius,  # value = радиус, не диаметр
+                    canonical_key=canonical,
+                    view_name=view_name,
+                    anchor_a=(cx, cy),
+                    anchor_b=(cx + radius, cy),
+                    preferred_side='right',
+                    priority=1,
+                    center=(cx, cy),
+                    radius=radius,
+                ))
+            else:
+                # Большой цилиндр → размер Ø
+                results.append(DimensionCandidate(
+                    dim_type='diameter',
+                    value_mm=diameter,
+                    canonical_key=canonical,
+                    view_name=view_name,
+                    anchor_a=(cx - radius, cy),
+                    anchor_b=(cx + radius, cy),
+                    preferred_side='right',
+                    priority=1,
+                    center=(cx, cy),
+                    radius=radius,
+                ))
         else:
             # Осевая линия: диаметр как линейный размер поперёк оси
             # Находим перпендикулярное направление к проекции оси
