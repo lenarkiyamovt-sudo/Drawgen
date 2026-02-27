@@ -39,6 +39,7 @@ from stl_drawing.drawing.svg_renderer import render_view_lines
 from stl_drawing.drawing.title_block import (
     add_additional_stamps,
     add_frame,
+    add_technical_requirements,
     add_title_block,
 )
 from stl_drawing.drawing.view_selector import select_necessary_views
@@ -74,20 +75,38 @@ class ESKDDrawingSheet:
         part_name: str = "",
         org_name: str = "",
         surname: str = "",
+        material: str = "",
+        weight: str = "",
+        lit: str = "",
+        sheet_number: int = 0,
+        total_sheets: int = 0,
+        technical_requirements: Optional[Sequence[str]] = None,
     ) -> None:
         """Задать метаданные для заполнения штампа.
 
         Args:
             doc_designation: обозначение документа (Графа 2, 26).
             part_name: наименование изделия (Графа 1).
-            org_name: наименование организации (Графа 8).
+            org_name: наименование организации (Графа 9).
             surname: фамилия подписанта (Разраб./Пров./Т.контр./Н.контр./Утв.).
+            material: обозначение материала детали (Графа 3).
+            weight: масса изделия (Графа 5).
+            lit: литера документа (Графа 4).
+            sheet_number: порядковый номер листа (Графа 7, 0 = не показывать).
+            total_sheets: общее количество листов (Графа 8, 0 = не показывать).
+            technical_requirements: список пунктов ТТ (ГОСТ 2.316-2008).
         """
         self.metadata = {
             'doc_designation': doc_designation,
             'part_name':       part_name,
             'org_name':        org_name,
             'surname':         surname,
+            'material':        material,
+            'weight':          weight,
+            'lit':             lit,
+            'sheet_number':    sheet_number if sheet_number else '',
+            'total_sheets':    total_sheets if total_sheets else '',
+            'technical_requirements': list(technical_requirements or []),
         }
 
     def set_cylinders(self, cylinders: List[dict]) -> None:
@@ -238,6 +257,12 @@ class ESKDDrawingSheet:
                         stroke_S=stroke_width)
         add_additional_stamps(dwg, self.sheet_w, self.sheet_h, self.format_name or "", self.metadata,
                               stroke_S=stroke_width)
+
+        # 5.7. Технические требования (ГОСТ 2.316-2008)
+        tt = self.metadata.get('technical_requirements', [])
+        if tt:
+            add_technical_requirements(dwg, self.sheet_w, self.sheet_h, tt,
+                                       stroke_S=stroke_width)
 
         dwg.save()
         logger.info("ЕСКД-чертёж сохранён: %s", filename)

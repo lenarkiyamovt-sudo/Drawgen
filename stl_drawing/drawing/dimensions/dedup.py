@@ -21,6 +21,7 @@ _FRONT_VIEW_BONUS = 2.0     # фронтальный вид — основной
 _TRUE_LENGTH_BONUS = 3.0    # размер в истинную величину
 _LOW_LOAD_BONUS = 1.0       # вид с меньшим числом размеров
 _PRIORITY_PENALTY = 0.5     # штраф за низкий приоритет (ступени)
+_GEOMETRIC_SPECIFICITY_BONUS = 3.0  # диаметр/радиус точнее передают геометрию
 
 
 def deduplicate_dimensions(
@@ -107,6 +108,11 @@ def _score_candidate(
     # где горизонтальная ось является целевой 3D-осью без ракурса
     # (все виды ортогональны — размеры всегда в истинную величину на своём виде)
     score += _TRUE_LENGTH_BONUS
+
+    # Бонус за геометрическую специфичность: диаметр/радиус точнее
+    # передают геометрию элемента (Ø, R), чем линейная проекция того же размера
+    if candidate.dim_type in ('diameter', 'radius'):
+        score += _GEOMETRIC_SPECIFICITY_BONUS
 
     # Штраф за приоритет (ступени менее важны, чем габариты)
     score -= candidate.priority * _PRIORITY_PENALTY
