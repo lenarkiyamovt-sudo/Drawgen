@@ -425,17 +425,20 @@ def calculate_line_parameters(
             '_eskd_type': ESKDLineType.STAMP_THIN,
         },
         # Текст размеров (ГОСТ 2.304-81)
+        # Высота шрифта из стандартного ряда: h=3.5 для S≤0.5, h=5.0 для S≥0.7
         'dimension_text': {
             'font_family': f'{DIM_FONT_FAMILY}, Arial',
-            'font_size': f'{DIM_TEXT_HEIGHT}mm',
+            'font_size': f'{3.5 if stroke_width <= 0.5 else 5.0}mm',
             'font_style': 'italic',
             'fill': 'black',
             'text_anchor': 'middle',
+            '_height': 3.5 if stroke_width <= 0.5 else 5.0,
         },
-        # Стрелки размеров (ГОСТ 2.307-2011)
+        # Стрелки размеров (ГОСТ 2.307-2011, рис. 25)
+        # Длина ≈ 6×S, ширина ≈ 2×S
         'dimension_arrow': {
-            'length': DIM_ARROW_LENGTH,
-            'width': DIM_ARROW_WIDTH,
+            'length': round(6.0 * stroke_width, 2),
+            'width': round(2.0 * stroke_width, 2),
         },
         # Параметры для внутреннего использования
         '_params': {

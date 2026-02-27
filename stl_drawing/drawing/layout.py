@@ -276,67 +276,178 @@ def front_view_size_mm(views_data: Dict, scale: float) -> float:
     return min(fw, fh)
 
 
+def _available_area(sheet_w: float, sheet_h: float) -> Tuple[float, float]:
+    """Вычислить доступную область для видов на листе (за вычетом полей, штампа, резерва).
+
+    Returns:
+        (avail_w, avail_h) в мм.
+    """
+    avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER - 2 * DIM_MARGIN_RESERVE
+    avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H - 2 * DIM_MARGIN_RESERVE
+    return avail_w, avail_h
+
+
+def _fits_on_sheet(views_data: Dict, scale: float,
+                   sheet_w: float, sheet_h: float) -> bool:
+    """Проверить, помещается ли компоновка видов на лист при данном масштабе."""
+    avail_w, avail_h = _available_area(sheet_w, sheet_h)
+    if avail_w <= 0 or avail_h <= 0:
+        return False
+    layout_w, layout_h = compute_layout_dims_mm(views_data, scale)
+    return layout_w <= avail_w + 0.1 and layout_h <= avail_h + 0.1
+
+
+def _sheet_orientations(fmt: str):
+    """Вернуть варианты (sheet_w, sheet_h) для обеих ориентаций формата."""
+    short, long_ = GOST_FORMATS[fmt]
+    return [(long_, short), (short, long_)]
+
+
+def _fill_percent(views_data: Dict, scale: float,
+                  sheet_w: float, sheet_h: float) -> float:
+    """Вычислить процент заполнения листа компоновкой видов."""
+    avail_w, avail_h = _available_area(sheet_w, sheet_h)
+    if avail_w <= 0 or avail_h <= 0:
+        return 0.0
+    layout_w, layout_h = compute_layout_dims_mm(views_data, scale)
+    return (layout_w * layout_h) / (avail_w * avail_h) * 100
+
+
 def select_format_and_scale(views_data: Dict) -> tuple:
     """Выбрать формат и масштаб ГОСТ, максимизирующий масштаб чертежа.
 
-    Стратегия (scale-first, Tekla-style):
-      1. Перебрать масштабы ГОСТ от крупного к мелкому (1:1 → 1:1000).
-      2. Для каждого масштаба вычислить размеры компоновки в мм
-         (с учётом реальных зазоров между видами).
-      3. Перебрать форматы от A4 до A0, в обеих ориентациях
-         (landscape и portrait).
-      4. Вернуть первую подходящую комбинацию =
-         максимальный масштаб + минимальный формат + оптимальная ориентация.
+    Продвинутый 4-шаговый алгоритм:
 
-    Такой порядок перебора гарантирует наилучшую читаемость (крупный масштаб)
-    при минимальном расходе бумаги (наименьший подходящий формат).
+      Шаг 1 — Предпочтительный масштаб 1:1.
+        Пробуем масштаб 1:1 на каждом формате (A4→A0, обе ориентации).
+        Если помещается — берём наименьший подходящий формат.
+
+      Шаг 2 — Уменьшаем масштаб, увеличиваем формат.
+        Перебираем форматы от A4 к A0. Для каждого формата находим
+        максимальный масштаб ГОСТ, при котором виды помещаются.
+        Запоминаем все подходящие пары {формат, масштаб}.
+
+      Шаг 3 — Оптимизация: попытка увеличить масштаб.
+        Для каждой найденной пары пробуем следующий (более крупный) масштаб ГОСТ.
+        Если он тоже помещается — заменяем. Повторяем, пока помещается.
+
+      Шаг 4 — Финализация: выбрать лучшую пару.
+        Критерий: максимальный масштаб. При равных масштабах — минимальный формат.
+        При равных масштабе и формате — лучшая ориентация (большее заполнение).
 
     Returns:
         (format_name, scale, sheet_width, sheet_height)
     """
-    for gost_scale in GOST_REDUCTION_SCALES:
-        layout_w, layout_h = compute_layout_dims_mm(views_data, gost_scale)
+    candidates = []  # [(fmt, scale, sheet_w, sheet_h, fill%)]
 
-        for fmt in GOST_FORMATS_ORDERED:
-            short, long_ = GOST_FORMATS[fmt]
-
-            # Попробовать обе ориентации: landscape и portrait
-            for sheet_w, sheet_h in [(long_, short), (short, long_)]:
-                avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER - 2 * DIM_MARGIN_RESERVE
-                avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H - 2 * DIM_MARGIN_RESERVE
-
-                if avail_w <= 0 or avail_h <= 0:
-                    continue
-
-                if layout_w > avail_w + 0.1 or layout_h > avail_h + 0.1:
-                    continue
-
-                # Подходит — логируем и возвращаем
-                front_mm = front_view_size_mm(views_data, gost_scale)
-                fill = (layout_w * layout_h) / (avail_w * avail_h) * 100
-                inv = 1.0 / gost_scale if gost_scale > 0 else 9999
-                orient = 'landscape' if sheet_w >= sheet_h else 'portrait'
-
-                logger.info(
-                    "=> Формат: %s (%s)  масштаб 1:%.4g  "
-                    "(фронт %.1f мм, заполнение %.0f%%)",
-                    fmt, orient, inv, front_mm, fill,
+    # ---------------------------------------------------------------
+    # Шаг 1: Попытка 1:1 — предпочтительный масштаб
+    # ---------------------------------------------------------------
+    for fmt in GOST_FORMATS_ORDERED:
+        for sheet_w, sheet_h in _sheet_orientations(fmt):
+            if _fits_on_sheet(views_data, 1.0, sheet_w, sheet_h):
+                fill = _fill_percent(views_data, 1.0, sheet_w, sheet_h)
+                candidates.append((fmt, 1.0, sheet_w, sheet_h, fill))
+                logger.debug(
+                    "  Шаг 1: 1:1 помещается на %s %s (заполнение %.0f%%)",
+                    fmt, 'landscape' if sheet_w >= sheet_h else 'portrait', fill,
                 )
-                return fmt, gost_scale, sheet_w, sheet_h
+                break  # наименьший формат для 1:1 найден, не проверяем бо́льшие
+        if candidates:
+            break  # 1:1 нашёлся — прекращаем перебор форматов
 
-    # Аварийный fallback: A0 landscape, минимально возможный масштаб
-    logger.warning("Ни один масштаб ГОСТ не подошёл — аварийный fallback на A0")
-    short, long_ = GOST_FORMATS['A0']
-    sheet_w, sheet_h = long_, short
-    avail_w = sheet_w - MARGIN_LEFT - MARGIN_OTHER
-    avail_h = sheet_h - 2 * MARGIN_OTHER - TITLE_BLOCK_H
+    # ---------------------------------------------------------------
+    # Шаг 2: Перебор форматов, для каждого — максимальный масштаб
+    # ---------------------------------------------------------------
+    for fmt in GOST_FORMATS_ORDERED:
+        best_for_fmt = None
+        for sheet_w, sheet_h in _sheet_orientations(fmt):
+            # Перебираем масштабы от крупного к мелкому
+            for gost_scale in GOST_REDUCTION_SCALES:
+                if _fits_on_sheet(views_data, gost_scale, sheet_w, sheet_h):
+                    fill = _fill_percent(views_data, gost_scale, sheet_w, sheet_h)
+                    entry = (fmt, gost_scale, sheet_w, sheet_h, fill)
+                    # Берём лучший масштаб для данного формата+ориентации
+                    if best_for_fmt is None or gost_scale > best_for_fmt[1]:
+                        best_for_fmt = entry
+                    break  # первый подходящий масштаб = самый крупный
+        if best_for_fmt is not None:
+            candidates.append(best_for_fmt)
 
-    model_w, model_h = compute_layout_model_dims(views_data)
-    raw = min(
-        (avail_w - N_GAPS_HORIZONTAL * VIEW_SPACING_MM) / max(model_w, 1e-9),
-        (avail_h - N_GAPS_VERTICAL * VIEW_SPACING_MM) / max(model_h, 1e-9),
+    if not candidates:
+        # Аварийный fallback: A0 landscape, минимальный масштаб
+        logger.warning("Ни один масштаб ГОСТ не подошёл — аварийный fallback на A0")
+        short, long_ = GOST_FORMATS['A0']
+        sheet_w, sheet_h = long_, short
+        model_w, model_h = compute_layout_model_dims(views_data)
+        avail_w, avail_h = _available_area(sheet_w, sheet_h)
+        raw = min(
+            avail_w / max(model_w, 1e-9),
+            avail_h / max(model_h, 1e-9),
+        )
+        best_scale = snap_to_gost_scale(raw)
+        inv = 1.0 / best_scale if best_scale > 0 else 9999
+        logger.info("=> Fallback: A0 landscape  масштаб 1:%.4g", inv)
+        return 'A0', best_scale, sheet_w, sheet_h
+
+    # ---------------------------------------------------------------
+    # Шаг 3: Оптимизация — попытка увеличить масштаб для каждого кандидата
+    # ---------------------------------------------------------------
+    optimized = []
+    for fmt, scale, sheet_w, sheet_h, fill in candidates:
+        # Попробуем следующие (более крупные) масштабы
+        scale_idx = None
+        for i, gs in enumerate(GOST_REDUCTION_SCALES):
+            if abs(gs - scale) < 1e-9:
+                scale_idx = i
+                break
+
+        best_scale = scale
+        if scale_idx is not None:
+            # Пробуем масштабы крупнее (индексы меньше в GOST_REDUCTION_SCALES)
+            for i in range(scale_idx - 1, -1, -1):
+                bigger = GOST_REDUCTION_SCALES[i]
+                if _fits_on_sheet(views_data, bigger, sheet_w, sheet_h):
+                    best_scale = bigger
+                else:
+                    break  # дальше крупнее не поместится
+
+        fill = _fill_percent(views_data, best_scale, sheet_w, sheet_h)
+        optimized.append((fmt, best_scale, sheet_w, sheet_h, fill))
+
+    # ---------------------------------------------------------------
+    # Шаг 4: Финализация — выбрать лучшую пару
+    # Критерий: максимальный масштаб → минимальный формат → большее заполнение
+    # ---------------------------------------------------------------
+    fmt_order = {name: i for i, name in enumerate(GOST_FORMATS_ORDERED)}
+
+    def sort_key(entry):
+        fmt, scale, sw, sh, fill = entry
+        return (-scale, fmt_order.get(fmt, 99), -fill)
+
+    optimized.sort(key=sort_key)
+    best = optimized[0]
+    fmt, scale, sheet_w, sheet_h, fill = best
+
+    front_mm = front_view_size_mm(views_data, scale)
+    inv = 1.0 / scale if scale > 0 else 9999
+    orient = 'landscape' if sheet_w >= sheet_h else 'portrait'
+
+    logger.info(
+        "=> Формат: %s (%s)  масштаб 1:%.4g  "
+        "(фронт %.1f мм, заполнение %.0f%%)",
+        fmt, orient, inv, front_mm, fill,
     )
-    best_scale = snap_to_gost_scale(raw)
-    inv = 1.0 / best_scale if best_scale > 0 else 9999
-    logger.info("=> Fallback: A0 landscape  масштаб 1:%.4g", inv)
-    return 'A0', best_scale, sheet_w, sheet_h
+
+    # Лог остальных кандидатов для отладки
+    if len(optimized) > 1:
+        for entry in optimized[1:]:
+            ef, es, esw, esh, efl = entry
+            einv = 1.0 / es if es > 0 else 9999
+            eor = 'landscape' if esw >= esh else 'portrait'
+            logger.debug(
+                "   Кандидат: %s (%s)  масштаб 1:%.4g  (заполнение %.0f%%)",
+                ef, eor, einv, efl,
+            )
+
+    return fmt, scale, sheet_w, sheet_h

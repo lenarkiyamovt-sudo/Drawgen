@@ -150,14 +150,17 @@ def render_dimensions(
             dwg, single, pd.arrow_b_pos, pd.arrow_b_angle,
             pd.arrow_b_style, arrow_params, line_style)
 
+        # Высота шрифта из стилей (адаптивная: 3.5 или 5.0 в зависимости от S)
+        text_h = text_style.get('_height', DIM_TEXT_HEIGHT)
+
         # Фон текста (белый прямоугольник для читаемости)
         text_bg = _create_text_background(
-            dwg, pd.text_value, pd.text_pos, pd.text_angle)
+            dwg, pd.text_value, pd.text_pos, pd.text_angle, text_h)
         single.add(text_bg)
 
         # Текст
         text_el = _create_dim_text(
-            dwg, pd.text_value, pd.text_pos, pd.text_angle, text_style)
+            dwg, pd.text_value, pd.text_pos, pd.text_angle, text_style, text_h)
         single.add(text_el)
 
         dim_group.add(single)
@@ -305,6 +308,7 @@ def _create_dim_text(
     position: Tuple[float, float],
     angle_deg: float,
     text_style: dict,
+    text_height: float = DIM_TEXT_HEIGHT,
 ) -> svgwrite.text.Text:
     """Создать размерную надпись (ГОСТ 2.304-81, тип Б, наклонный).
 
@@ -317,17 +321,18 @@ def _create_dim_text(
         position: центр текста (мм на листе).
         angle_deg: угол поворота текста (градусы).
         text_style: словарь стилей шрифта.
+        text_height: высота шрифта в мм (адаптивная, из eskd_styles).
 
     Returns:
         SVG text-элемент.
     """
     x, y = position
     font_family = text_style.get('font_family', f'{DIM_FONT_FAMILY}, Arial, sans-serif')
-    font_size = text_style.get('font_size', f'{DIM_TEXT_HEIGHT}mm')
+    font_size = text_style.get('font_size', f'{text_height}mm')
 
     # Смещение baseline: cap-height ≈ 0.7*em → центр текста при y_bl = y + size*0.35
     # (паттерн из донора stl_to_point_1.py, метод _text())
-    y_bl = y + DIM_TEXT_HEIGHT * 0.35
+    y_bl = y + text_height * 0.35
 
     txt = dwg.text(
         text,
@@ -394,6 +399,7 @@ def _create_text_background(
     text: str,
     position: Tuple[float, float],
     angle_deg: float,
+    text_height: float = DIM_TEXT_HEIGHT,
 ) -> svgwrite.shapes.Rect:
     """Создать белый прямоугольник-фон за текстом размера.
 
@@ -404,6 +410,7 @@ def _create_text_background(
         text: текст размера (для оценки ширины).
         position: центр текста (мм на листе).
         angle_deg: угол поворота текста (градусы).
+        text_height: высота шрифта в мм (адаптивная, из eskd_styles).
 
     Returns:
         SVG rect-элемент (белый, без обводки).
@@ -411,12 +418,12 @@ def _create_text_background(
     x, y = position
 
     # Оценка ширины текста: ~0.6 * высота шрифта на символ (ISOCPEUR italic)
-    text_w = len(text) * DIM_TEXT_HEIGHT * 0.6
-    text_h = DIM_TEXT_HEIGHT * 1.3
+    text_w = len(text) * text_height * 0.6
+    text_h = text_height * 1.3
     padding = 0.3  # мм запас
 
     rect = dwg.rect(
-        insert=(x - text_w / 2 - padding, y - text_h + DIM_TEXT_HEIGHT * 0.35),
+        insert=(x - text_w / 2 - padding, y - text_h + text_height * 0.35),
         size=(text_w + 2 * padding, text_h + padding),
         fill='white',
         stroke='none',
