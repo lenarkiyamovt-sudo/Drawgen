@@ -104,8 +104,8 @@ GOST_LINE_SPECS: Dict[LineType, LineStyle] = {
     LineType.CHAIN_THIN: LineStyle(
         line_type=LineType.CHAIN_THIN,
         thickness_ratio=0.4,
-        dash_length_range=(5.0, 30.0),
-        gap_length_range=(3.0, 5.0),
+        dash_length_range=(5.0, 15.0),
+        gap_length_range=(2.0, 3.0),
         description_ru="Штрихпунктирная тонкая",
         description_en="Chain thin (center, axis lines)",
     ),
@@ -281,6 +281,7 @@ def calculate_line_parameters(
     stroke_width: Optional[float] = None,
     scale: float = 1.0,
     format_name: str = "A4",
+    thickness_scale: float = 1.0,
 ) -> Dict[str, Dict]:
     """Вычислить параметры линий по ГОСТ 2.303-68.
 
@@ -300,6 +301,8 @@ def calculate_line_parameters(
         stroke_width: переопределить S вручную (None → авто по ГОСТ)
         scale: масштаб чертежа (1.0 для 1:1, 0.5 для 1:2, 2.0 для 2:1)
         format_name: формат листа ("A4", "A3", "A2", "A1", "A0")
+        thickness_scale: множитель толщины всех линий (1.0 — без изменений,
+                         0.7 — уменьшить на 30%, 1.5 — увеличить на 50%)
 
     Returns:
         Словарь стилей для всех типов линий + '_params' с числовыми параметрами
@@ -311,6 +314,9 @@ def calculate_line_parameters(
         if front_view_mm < 60:
             stroke_width = min(stroke_width, S_THIN_DRAWING)
 
+    # Применить множитель толщины и округлить до 0.01 мм
+    stroke_width = round(stroke_width * thickness_scale, 2)
+
     # Get dash patterns based on view size
     dash_length, gap_length = get_dash_pattern_for_size(front_view_mm, LineType.DASHED)
     cl_dash, cl_gap = get_dash_pattern_for_size(front_view_mm, LineType.CHAIN_THIN)
@@ -318,16 +324,16 @@ def calculate_line_parameters(
     # Chain thin dot size (approximately S/2)
     cl_dot = stroke_width * 0.5
 
-    # Calculate line thicknesses
-    thin_width = stroke_width * GOST_LINE_SPECS[LineType.CONTINUOUS_THIN].thickness_ratio
-    chain_thick_width = stroke_width * GOST_LINE_SPECS[LineType.CHAIN_THICK].thickness_ratio
-    open_width = stroke_width * GOST_LINE_SPECS[LineType.OPEN].thickness_ratio
+    # Calculate line thicknesses (округление до 0.01 мм)
+    thin_width = round(stroke_width * GOST_LINE_SPECS[LineType.CONTINUOUS_THIN].thickness_ratio, 2)
+    chain_thick_width = round(stroke_width * GOST_LINE_SPECS[LineType.CHAIN_THICK].thickness_ratio, 2)
+    open_width = round(stroke_width * GOST_LINE_SPECS[LineType.OPEN].thickness_ratio, 2)
 
     return {
         # Сплошная основная — видимый контур (ESKDLineType.SOLID)
         'visible': {
             'stroke': 'black',
-            'stroke_width': f'{stroke_width}mm',
+            'stroke_width': f'{stroke_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CONTINUOUS_THICK.value,
             '_eskd_type': ESKDLineType.SOLID,
@@ -335,7 +341,7 @@ def calculate_line_parameters(
         # Штриховая — невидимый контур (ESKDLineType.DASHED)
         'hidden': {
             'stroke': 'black',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_dasharray': f'{dash_length},{gap_length}',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.DASHED.value,
@@ -344,7 +350,7 @@ def calculate_line_parameters(
         # Сплошная тонкая — для невидимого контура без штрихов (внутреннее использование)
         'hidden_solid': {
             'stroke': 'black',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CONTINUOUS_THIN.value,
             '_eskd_type': ESKDLineType.THIN,
@@ -352,7 +358,7 @@ def calculate_line_parameters(
         # Сплошная тонкая — размерные, выносные линии (ESKDLineType.THIN)
         'thin': {
             'stroke': 'black',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CONTINUOUS_THIN.value,
             '_eskd_type': ESKDLineType.THIN,
@@ -360,7 +366,7 @@ def calculate_line_parameters(
         # Штрихпунктирная тонкая — осевые, центровые линии (ESKDLineType.CENTER)
         'centerline': {
             'stroke': 'red',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CHAIN_THIN.value,
             '_eskd_type': ESKDLineType.CENTER,
@@ -368,7 +374,7 @@ def calculate_line_parameters(
         # Сплошная тонкая — размерные линии (ESKDLineType.THIN)
         'dimension': {
             'stroke': 'black',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CONTINUOUS_THIN.value,
             '_eskd_type': ESKDLineType.THIN,
@@ -376,7 +382,7 @@ def calculate_line_parameters(
         # Разомкнутая — линии сечений (ESKDLineType.SECTION)
         'section': {
             'stroke': 'black',
-            'stroke_width': f'{open_width:.2f}mm',
+            'stroke_width': f'{open_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.OPEN.value,
             '_eskd_type': ESKDLineType.SECTION,
@@ -384,7 +390,7 @@ def calculate_line_parameters(
         # Штрихпунктирная толстая — линии обозначения поверхностей
         'chain_thick': {
             'stroke': 'black',
-            'stroke_width': f'{chain_thick_width:.2f}mm',
+            'stroke_width': f'{chain_thick_width:g}mm',
             'stroke_linecap': 'butt',
             '_gost_type': LineType.CHAIN_THICK.value,
             '_eskd_type': ESKDLineType.SOLID,
@@ -392,7 +398,7 @@ def calculate_line_parameters(
         # Волнистая — линии обрыва (ESKDLineType.WAVELINE)
         'waveline': {
             'stroke': 'black',
-            'stroke_width': f'{thin_width:.2f}mm',
+            'stroke_width': f'{thin_width:g}mm',
             'stroke_linecap': 'round',
             '_gost_type': LineType.CONTINUOUS_WAVY.value,
             '_eskd_type': ESKDLineType.WAVELINE,
@@ -400,7 +406,7 @@ def calculate_line_parameters(
         # Рамка основная (ESKDLineType.FRAME)
         'frame': {
             'stroke': 'black',
-            'stroke_width': f'{stroke_width}mm',
+            'stroke_width': f'{stroke_width:g}mm',
             'stroke_linecap': 'butt',
             '_eskd_type': ESKDLineType.FRAME,
         },

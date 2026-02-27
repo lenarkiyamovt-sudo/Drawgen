@@ -25,8 +25,9 @@ class ESKDLineType(Enum):
       - is_wave: флаг волнистой линии (опционально)
     """
     # Сплошная основная — видимый контур
+    # Реальная толщина S определяется адаптивно в gost_params; здесь — дефолт
     SOLID = {
-        "stroke_width": 1.0,
+        "stroke_width": 0.7,
         "pattern": None,
         "desc": "Сплошная основная",
         "priority": 2,
@@ -39,16 +40,18 @@ class ESKDLineType(Enum):
         "priority": 1,
     }
     # Штриховая — невидимый контур
+    # Реальные параметры (толщина, штрихи) определяются адаптивно в gost_params
     DASHED = {
-        "stroke_width": 0.3,
-        "pattern": "8,3",
+        "stroke_width": 0.28,
+        "pattern": "4,1.5",
         "desc": "Штриховая",
         "priority": 3,
     }
     # Штрихпунктирная тонкая — осевые, центровые линии
+    # Реальные параметры определяются адаптивно в gost_params
     CENTER = {
-        "stroke_width": 0.3,
-        "pattern": "15,3,3,3",
+        "stroke_width": 0.28,
+        "pattern": "10,3,1,3",
         "desc": "Осевая",
         "priority": 0,
     }

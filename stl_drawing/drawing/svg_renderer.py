@@ -149,7 +149,7 @@ def render_view_lines(
 ) -> svgwrite.container.Group:
     """Отрисовать все линии одного вида в SVG-группу.
 
-    Использует ESKDLineType для определения стилей линий.
+    Использует адаптивные параметры из eskd_styles (ГОСТ 2.303-68).
 
     Args:
         dwg: SVG-документ (для создания элементов).
@@ -166,21 +166,15 @@ def render_view_lines(
     view_group = dwg.g()
     params = eskd_styles['_params']
 
-    # Стили из ESKDLineType (абсолютные значения)
-    visible_style = ESKDLineType.SOLID.get_svg_style()
-    hidden_style = ESKDLineType.DASHED.get_svg_style()
+    # Стили из адаптивных параметров ГОСТ 2.303-68 (зависят от формата и размера вида)
+    visible_style = _filter_svg_attrs(eskd_styles['visible'])
+    hidden_style = _filter_svg_attrs(eskd_styles['hidden'])
 
-    # Параметры штрихов для скрытых линий
-    dash_pattern = ESKDLineType.DASHED.svg_pattern
-    if dash_pattern:
-        parts = dash_pattern.split(',')
-        dash_len = float(parts[0])
-        gap_len = float(parts[1]) if len(parts) > 1 else 1.0
-    else:
-        dash_len = params['dash_length']
-        gap_len = params['gap_length']
+    # Параметры штрихов для скрытых линий (адаптивные по размеру вида)
+    dash_len = params['dash_length']
+    gap_len = params['gap_length']
 
-    half_sw = ESKDLineType.SOLID.stroke_width / 2
+    half_sw = params['S'] / 2
 
     # --- Скрытые линии: ручная генерация штрихов (ЕСКД: начало/конец = полный штрих) ---
     for pA, pB in hidden_lines:
@@ -190,11 +184,11 @@ def render_view_lines(
         y2 = float(pB[1]) * scale + translate_y
 
         segs, _ = generate_dashes((x1, y1), (x2, y2), dash_len, gap_len)
-        # Используем стиль без dasharray (штрихи генерируются вручную)
-        seg_style = {k: v for k, v in hidden_style.items() if k != 'stroke-dasharray'}
+        # Используем стиль без dasharray (штрихи генерируются вручную по ГОСТ)
+        seg_style = {k: v for k, v in hidden_style.items()
+                     if k != 'stroke-dasharray' and k != 'stroke_dasharray'}
         for s, e in segs:
             line = dwg.line(start=s, end=e, **seg_style)
-            line['style'] = "vector-effect: non-scaling-stroke;"
             line['data-line-type'] = 'hidden'
             line['data-eskd-type'] = 'dashed'
             view_group.add(line)
@@ -207,8 +201,9 @@ def render_view_lines(
         y2 = float(pB[1]) * scale + translate_y
 
         pA_ext, pB_ext = extend_line((x1, y1), (x2, y2), half_sw)
-        line = dwg.line(start=pA_ext, end=pB_ext, **visible_style)
-        line['style'] = "vector-effect: non-scaling-stroke;"
+        vis_attrs = {k: v for k, v in visible_style.items()
+                     if k != 'stroke_dasharray'}
+        line = dwg.line(start=pA_ext, end=pB_ext, **vis_attrs)
         line['data-eskd-type'] = 'solid'
         view_group.add(line)
 
@@ -231,7 +226,7 @@ def _render_centerlines(
 ) -> None:
     """Отрисовать осевые линии цилиндров (ГОСТ 2.303-68: штрихпунктирная тонкая).
 
-    Использует ESKDLineType.CENTER для стиля линий.
+    Использует адаптивные параметры из eskd_styles.
 
     Правила ГОСТ 2.303-68:
       - Вынос осевой за контур тела: 2–5 мм (используем 3 мм).
@@ -248,17 +243,22 @@ def _render_centerlines(
         translate_x, translate_y: смещение вида.
         eskd_styles: словарь стилей (для обратной совместимости).
     """
-    # Стиль из ESKDLineType.CENTER (красный, штрихпунктир)
-    cl_style = ESKDLineType.CENTER.get_svg_style(color='red')
+    # Стиль из адаптивных параметров ГОСТ 2.303-68 (centerline)
+    cl_style = _filter_svg_attrs(eskd_styles.get('centerline', {}))
+    if not cl_style:
+        cl_style = ESKDLineType.CENTER.get_svg_style(color='red')
     # Убрать dasharray — будет добавлен вручную где нужно
-    cl_style_solid = {k: v for k, v in cl_style.items() if k != 'stroke-dasharray'}
+    cl_style_solid = {k: v for k, v in cl_style.items()
+                      if k != 'stroke-dasharray' and k != 'stroke_dasharray'}
 
-    # Паттерн штрихпунктира из ESKDLineType.CENTER
-    dasharray = ESKDLineType.CENTER.svg_pattern or "15,3,3,3"
-    parts = dasharray.split(',')
-    cl_dash = float(parts[0])
-    cl_gap = float(parts[1]) if len(parts) > 1 else 3.0
-    cl_dot = float(parts[2]) if len(parts) > 2 else 3.0
+    # Параметры штрихпунктира из адаптивных параметров
+    params = eskd_styles.get('_params', {})
+    cl_dash = params.get('cl_dash', 10.0)
+    cl_gap = params.get('cl_gap', 3.0)
+    cl_dot = params.get('cl_dot', 0.3)
+
+    # SVG dasharray для осевой: штрих, пробел, точка, пробел
+    dasharray = f"{cl_dash},{cl_gap},{cl_dot},{cl_gap}"
 
     # Один полный цикл штрихпунктира: штрих + пробел + точка + пробел
     dash_cycle = cl_dash + cl_gap + cl_dot + cl_gap

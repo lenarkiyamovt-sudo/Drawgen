@@ -64,6 +64,7 @@ def run_pipeline(
     surname: str = "",
     config: Optional[ProjectConfig] = None,
     output_dxf: Optional[str] = None,
+    thickness_scale: float = 1.0,
 ) -> str:
     """Полный пайплайн: STL → ЕСКД SVG (+ DXF).
 
@@ -159,7 +160,7 @@ def run_pipeline(
     for view_name in DRAWING_VIEWS:
         logger.info("  Обработка вида: %s", view_name)
         projected, visible, hidden = view_proc.process_view(view_name)
-        centerlines = _compute_centerlines(cylinders, view_name)
+        centerlines = _compute_centerlines(cylinders, view_name, final_verts)
         sheet.add_view_data(view_name, projected, visible, hidden,
                             centerlines=centerlines)
 
@@ -171,7 +172,7 @@ def run_pipeline(
     logger.info("Шаг 6: Генерация ЕСКД-чертежа")
     logger.info("=" * 60)
     sheet.set_metadata(designation, part_name, org_name, surname)
-    result_path = sheet.generate_drawing(output_svg)
+    result_path = sheet.generate_drawing(output_svg, thickness_scale=thickness_scale)
 
     logger.info("Готово. SVG: %s", result_path)
 
@@ -336,6 +337,7 @@ def _generate_dxf(sheet: ESKDDrawingSheet, output_path: str) -> None:
 def _compute_centerlines(
     cylinders: List[dict],
     view_name: str,
+    model_verts: Optional[np.ndarray] = None,
 ) -> List[Dict]:
     """Вычислить 2D-проекции осевых линий цилиндров на данный вид.
 
@@ -343,12 +345,16 @@ def _compute_centerlines(
       - Если ось почти перпендикулярна плоскости вида (торец):
         рисуем перекрестие (горизонтальная + вертикальная осевые).
       - Иначе: рисуем осевую линию вдоль проекции оси.
+        Длина осевой определяется полным габаритом тела вращения
+        (вершины модели вблизи оси цилиндра), а не только длиной
+        цилиндрической поверхности.
 
     Координаты возвращаются в единицах модели (как visible/hidden lines).
 
     Args:
         cylinders: результат _detect_cylinders().
         view_name: имя вида ('front', 'top', и т.д.).
+        model_verts: вершины модели (N, 3) для определения габарита тела.
 
     Returns:
         Список словарей с описанием осевых линий.
@@ -377,10 +383,32 @@ def _compute_centerlines(
                 'radius': R,
             })
         else:
-            # Осевая линия вдоль проекции оси (без выноса — он добавится в мм при рендеринге)
+            # Осевая линия вдоль проекции оси.
+            # Определяем полный габарит тела вращения вдоль оси:
+            # ищем вершины модели вблизи оси цилиндра (в пределах 3R)
+            # и берём их крайние проекции на ось.
             half = L / 2
-            p1 = center - axis * half
-            p2 = center + axis * half
+            min_proj = -half
+            max_proj = half
+
+            if model_verts is not None and len(model_verts) > 0:
+                offsets = model_verts - center
+                along_axis = offsets @ axis              # проекция на ось
+                perp = offsets - np.outer(along_axis, axis)  # перпендикулярная компонента
+                dist_from_axis = np.linalg.norm(perp, axis=1)
+
+                # Вершины в пределах 3R от оси — часть тела вращения
+                nearby_mask = dist_from_axis < R * 3.0
+                if nearby_mask.any():
+                    nearby_proj = along_axis[nearby_mask]
+                    body_min = float(nearby_proj.min())
+                    body_max = float(nearby_proj.max())
+                    # Используем максимум из габарита тела и длины цилиндра
+                    min_proj = min(min_proj, body_min)
+                    max_proj = max(max_proj, body_max)
+
+            p1 = center + axis * min_proj
+            p2 = center + axis * max_proj
             p1_proj = (p1 @ M.T)[:2]
             p2_proj = (p2 @ M.T)[:2]
 
@@ -453,6 +481,13 @@ def _parse_args() -> argparse.Namespace:
         default="",
         help="Фамилия подписанта (Разраб./Пров./Т.контр./Н.контр./Утв.).",
     )
+    parser.add_argument(
+        "--thickness-scale", "-t",
+        type=float,
+        default=1.0,
+        dest="thickness_scale",
+        help="Множитель толщины всех линий (0.7 = −30%%, 1.5 = +50%%). По умолчанию: 1.0.",
+    )
     return parser.parse_args()
 
 
@@ -484,6 +519,7 @@ def main() -> None:
             surname=args.surname,
             config=config,
             output_dxf=output_dxf,
+            thickness_scale=args.thickness_scale,
         )
     except STLLoadError as exc:
         logger.critical("Ошибка загрузки STL: %s", exc)

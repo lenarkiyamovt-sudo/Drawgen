@@ -132,7 +132,11 @@ class ESKDDrawingSheet:
     # Генерация SVG
     # ------------------------------------------------------------------
 
-    def generate_drawing(self, filename: str = "unified_eskd_drawing.svg") -> str:
+    def generate_drawing(
+        self,
+        filename: str = "unified_eskd_drawing.svg",
+        thickness_scale: float = 1.0,
+    ) -> str:
         """Сгенерировать SVG-чертёж ЕСКД.
 
         Шаги:
@@ -144,6 +148,8 @@ class ESKDDrawingSheet:
 
         Args:
             filename: путь для сохранения SVG.
+            thickness_scale: множитель толщины всех линий (1.0 — без изменений,
+                             0.7 — уменьшить на 30%).
 
         Returns:
             Путь к сохранённому файлу.
@@ -173,12 +179,20 @@ class ESKDDrawingSheet:
         # 4. Параметры линий
         fv_mm = front_view_size_mm(active_views, self.scale)
         stroke_width = S_THICK_DRAWING if fv_mm >= 80 else S_THIN_DRAWING
-        eskd_styles = calculate_line_parameters(fv_mm, stroke_width)
+        eskd_styles = calculate_line_parameters(
+            fv_mm, stroke_width,
+            scale=self.scale,
+            format_name=self.format_name or "A4",
+            thickness_scale=thickness_scale,
+        )
+        # После масштабирования — актуальное S из параметров
+        stroke_width = eskd_styles['_params']['S']
         logger.info(
-            "Параметры линий: S=%.1f мм, штрих=%.0f мм, пробел=%.1f мм",
+            "Параметры линий: S=%.2f мм, штрих=%.0f мм, пробел=%.1f мм%s",
             stroke_width,
             eskd_styles['_params']['dash_length'],
             eskd_styles['_params']['gap_length'],
+            f" (×{thickness_scale:g})" if thickness_scale != 1.0 else "",
         )
 
         # 5. SVG
@@ -189,7 +203,7 @@ class ESKDDrawingSheet:
             debug=False,
         )
 
-        add_frame(dwg, self.sheet_w, self.sheet_h)
+        add_frame(dwg, self.sheet_w, self.sheet_h, stroke_S=stroke_width)
 
         views_group = dwg.g()
         for view_name, view_layout in layout.items():
@@ -220,8 +234,10 @@ class ESKDDrawingSheet:
             dwg.add(dim_group)
             logger.info("Добавлено %d размеров на чертёж", len(placed_dims))
 
-        add_title_block(dwg, self.sheet_w, self.sheet_h, self.scale, self.metadata)
-        add_additional_stamps(dwg, self.sheet_w, self.sheet_h, self.format_name or "", self.metadata)
+        add_title_block(dwg, self.sheet_w, self.sheet_h, self.scale, self.metadata,
+                        stroke_S=stroke_width)
+        add_additional_stamps(dwg, self.sheet_w, self.sheet_h, self.format_name or "", self.metadata,
+                              stroke_S=stroke_width)
 
         dwg.save()
         logger.info("ЕСКД-чертёж сохранён: %s", filename)

@@ -61,15 +61,24 @@ def _apply_line_style(element, line_type: ESKDLineType) -> None:
 # Рамка чертежа
 # ---------------------------------------------------------------------------
 
-def add_frame(dwg: svgwrite.Drawing, sheet_w: float, sheet_h: float) -> None:
+def add_frame(
+    dwg: svgwrite.Drawing,
+    sheet_w: float,
+    sheet_h: float,
+    stroke_S: Optional[float] = None,
+) -> None:
     """Нарисовать рамку чертежа по ГОСТ 2.104-2006.
 
     Поля: слева 20 мм (корешок), остальные 5 мм.
-    Внешняя граница — тонкая линия (FRAME_THIN), внутренняя рамка — основная (FRAME).
+    Внешняя граница — тонкая линия (FRAME_THIN), внутренняя рамка — толщина S.
+
+    Args:
+        dwg: SVG-документ.
+        sheet_w, sheet_h: размеры листа (мм).
+        stroke_S: толщина основной линии S (мм). Если None — из ESKDLineType.FRAME.
     """
     ml = MARGIN_LEFT
     mo = MARGIN_OTHER
-    S = S_FRAME
 
     # Внешняя граница листа — тонкая линия (ESKDLineType.FRAME_THIN)
     outer_rect = dwg.rect(
@@ -79,12 +88,17 @@ def add_frame(dwg: svgwrite.Drawing, sheet_w: float, sheet_h: float) -> None:
     _apply_line_style(outer_rect, ESKDLineType.FRAME_THIN)
     dwg.add(outer_rect)
 
-    # Внутренняя рамка — основная линия (ESKDLineType.FRAME)
+    # Внутренняя рамка — основная линия толщиной S
     inner_rect = dwg.rect(
         insert=(ml, mo), size=(sheet_w - ml - mo, sheet_h - 2 * mo),
         fill='none',
     )
-    _apply_line_style(inner_rect, ESKDLineType.FRAME)
+    if stroke_S is not None:
+        inner_rect['stroke'] = 'black'
+        inner_rect['stroke-width'] = f'{stroke_S:g}mm'
+        inner_rect['stroke-linecap'] = 'butt'
+    else:
+        _apply_line_style(inner_rect, ESKDLineType.FRAME)
     dwg.add(inner_rect)
 
 
@@ -98,10 +112,15 @@ def add_title_block(
     sheet_h: float,
     scale: Optional[float] = None,
     metadata: Optional[dict] = None,
+    stroke_S: Optional[float] = None,
 ) -> None:
-    """ГОСТ 2.104-2006 Форма 1 — основная надпись 185 × 55 мм."""
+    """ГОСТ 2.104-2006 Форма 1 — основная надпись 185 × 55 мм.
+
+    Args:
+        stroke_S: толщина основной линии S (мм). Если None — из ESKDLineType.FRAME.
+    """
     mo = MARGIN_OTHER
-    S = S_FRAME
+    S = stroke_S or S_FRAME
 
     x0 = sheet_w - mo - TITLE_BLOCK_W
     y0 = sheet_h - mo - TITLE_BLOCK_H
@@ -111,12 +130,17 @@ def add_title_block(
 
     g = dwg.g(id='title-block')
 
-    # Контур штампа (основная линия FRAME)
+    # Контур штампа (основная линия толщиной S)
     stamp_rect = dwg.rect(
         insert=(x0, y0), size=(TITLE_BLOCK_W, TITLE_BLOCK_H),
         fill='white',
     )
-    _apply_line_style(stamp_rect, ESKDLineType.FRAME)
+    if S:
+        stamp_rect['stroke'] = 'black'
+        stamp_rect['stroke-width'] = f'{S:g}mm'
+        stamp_rect['stroke-linecap'] = 'butt'
+    else:
+        _apply_line_style(stamp_rect, ESKDLineType.FRAME)
     g.add(stamp_rect)
 
     _draw_title_horizontal_lines(g, dwg, X, Y, S)
@@ -139,11 +163,16 @@ def add_additional_stamps(
     sheet_h: float,
     format_name: str = "",
     metadata: Optional[dict] = None,
+    stroke_S: Optional[float] = None,
 ) -> None:
-    """Дополнительные графы по ГОСТ 2.104-2006 (Гр. 19, 21, 22, 26)."""
+    """Дополнительные графы по ГОСТ 2.104-2006 (Гр. 19, 21, 22, 26).
+
+    Args:
+        stroke_S: толщина основной линии S (мм). Если None — из ESKDLineType.FRAME.
+    """
     mo = MARGIN_OTHER
     ml = MARGIN_LEFT
-    S = S_FRAME
+    S = stroke_S or S_FRAME
 
     font_kw = dict(
         font_family='ISOCPEUR, Arial, sans-serif',
@@ -173,23 +202,31 @@ def _line(
     y2: float,
     thick: bool = False,
     line_type: Optional[ESKDLineType] = None,
+    stroke_S: Optional[float] = None,
 ) -> None:
-    """Нарисовать линию штампа с указанным типом ЕСКД.
+    """Нарисовать линию штампа.
 
     Args:
         g: SVG-группа
         dwg: svgwrite.Drawing
         x1, y1: начальная точка
         x2, y2: конечная точка
-        thick: True для основной линии (FRAME), False для тонкой (STAMP_THIN)
+        thick: True для основной линии (толщина S), False для тонкой (S*0.4)
         line_type: явно указанный тип линии (переопределяет thick)
+        stroke_S: толщина основной линии S (мм). Если задано — используется
+                  вместо ESKDLineType.
     """
-    S = S_FRAME
-    if line_type is None:
-        line_type = ESKDLineType.FRAME if thick else ESKDLineType.STAMP_THIN
-
     line = dwg.line(start=(x1, y1), end=(x2, y2))
-    _apply_line_style(line, line_type)
+    if stroke_S is not None and line_type is None:
+        # Адаптивная толщина: thick=S, thin=S*0.4 (ГОСТ 2.303-68)
+        w = stroke_S if thick else round(stroke_S * 0.4, 2)
+        line['stroke'] = 'black'
+        line['stroke-width'] = f'{w:g}mm'
+        line['stroke-linecap'] = 'butt'
+    else:
+        if line_type is None:
+            line_type = ESKDLineType.FRAME if thick else ESKDLineType.STAMP_THIN
+        _apply_line_style(line, line_type)
     g.add(line)
 
 
@@ -238,29 +275,29 @@ def _draw_title_horizontal_lines(g, dwg, X, Y, S) -> None:
     # Левый блок (x=0..65): каждые 5 мм
     for oy in range(5, 55, 5):
         thick = oy in (30, 35)
-        _line(g, dwg, X(0), Y(oy), X(65), Y(oy), thick)
+        _line(g, dwg, X(0), Y(oy), X(65), Y(oy), thick, stroke_S=S)
 
     # Правый блок: y=15, 40 → S, 120 мм (x=65..185)
     for oy in (15, 40):
-        _line(g, dwg, X(65), Y(oy), X(185), Y(oy), True)
+        _line(g, dwg, X(65), Y(oy), X(185), Y(oy), True, stroke_S=S)
 
     # Правый блок: y=20, 35 → S, 50 мм (x=135..185)
     for oy in (20, 35):
-        _line(g, dwg, X(135), Y(oy), X(185), Y(oy), True)
+        _line(g, dwg, X(135), Y(oy), X(185), Y(oy), True, stroke_S=S)
 
 
 def _draw_title_vertical_lines(g, dwg, X, Y, S) -> None:
     """Вертикальные линии штампа."""
     for ox in (17, 40, 55):
-        _line(g, dwg, X(ox), Y(0), X(ox), Y(55), True)
-    _line(g, dwg, X(65),  Y(0),  X(65),  Y(55), True)
-    _line(g, dwg, X(7),   Y(30), X(7),   Y(55), True)
-    _line(g, dwg, X(135), Y(0),  X(135), Y(40), True)
-    _line(g, dwg, X(140), Y(20), X(140), Y(35), False)
-    _line(g, dwg, X(145), Y(20), X(145), Y(35), False)
-    _line(g, dwg, X(150), Y(20), X(150), Y(40), True)
-    _line(g, dwg, X(167), Y(20), X(167), Y(40), True)
-    _line(g, dwg, X(155), Y(15), X(155), Y(20), True)
+        _line(g, dwg, X(ox), Y(0), X(ox), Y(55), True, stroke_S=S)
+    _line(g, dwg, X(65),  Y(0),  X(65),  Y(55), True, stroke_S=S)
+    _line(g, dwg, X(7),   Y(30), X(7),   Y(55), True, stroke_S=S)
+    _line(g, dwg, X(135), Y(0),  X(135), Y(40), True, stroke_S=S)
+    _line(g, dwg, X(140), Y(20), X(140), Y(35), False, stroke_S=S)
+    _line(g, dwg, X(145), Y(20), X(145), Y(35), False, stroke_S=S)
+    _line(g, dwg, X(150), Y(20), X(150), Y(40), True, stroke_S=S)
+    _line(g, dwg, X(167), Y(20), X(167), Y(40), True, stroke_S=S)
+    _line(g, dwg, X(155), Y(15), X(155), Y(20), True, stroke_S=S)
 
 
 def _draw_title_text(g, dwg, X, Y) -> None:
@@ -388,23 +425,38 @@ def _draw_side_stamp(g, dwg, ml, sheet_h, mo, S, font_kw) -> None:
     dg_y = frame_bottom - dg_h
 
     side_rect = dwg.rect(insert=(dg_x, dg_y), size=(dg_w, dg_h), fill='white')
-    _apply_line_style(side_rect, ESKDLineType.FRAME)
+    if S:
+        side_rect['stroke'] = 'black'
+        side_rect['stroke-width'] = f'{S:g}mm'
+        side_rect['stroke-linecap'] = 'butt'
+    else:
+        _apply_line_style(side_rect, ESKDLineType.FRAME)
     g.add(side_rect)
 
     # Границы строк (мм от низа штампа): [0, 25, 59, 84, 112, 150]
     row_boundaries = [0, 25, 59, 84, 112, 150]
 
-    # Горизонтальные разделители (тонкие STAMP_THIN) — между строками
+    # Тонкая линия штампа: S*0.4 по ГОСТ
+    thin_w = round(S * 0.4, 2) if S else ESKDLineType.STAMP_THIN.stroke_width
+
+    # Горизонтальные разделители (тонкие) — между строками
     for rb in row_boundaries[1:-1]:   # 25, 59, 84, 112
         ry = frame_bottom - rb
         h_line = dwg.line(start=(dg_x, ry), end=(dg_x + dg_w, ry))
-        _apply_line_style(h_line, ESKDLineType.STAMP_THIN)
+        h_line['stroke'] = 'black'
+        h_line['stroke-width'] = f'{thin_w:g}mm'
+        h_line['stroke-linecap'] = 'butt'
         g.add(h_line)
 
-    # Вертикальный разделитель (основная FRAME): левая узкая колонка (5 мм) / правая широкая (7 мм)
+    # Вертикальный разделитель (основная): левая узкая колонка (5 мм) / правая широкая (7 мм)
     split_x = dg_x + 5.0
     v_line = dwg.line(start=(split_x, dg_y), end=(split_x, frame_bottom))
-    _apply_line_style(v_line, ESKDLineType.FRAME)
+    if S:
+        v_line['stroke'] = 'black'
+        v_line['stroke-width'] = f'{S:g}mm'
+        v_line['stroke-linecap'] = 'butt'
+    else:
+        _apply_line_style(v_line, ESKDLineType.FRAME)
     g.add(v_line)
 
     # Надписи в правой колонке, повёрнутые на -90°.
@@ -453,9 +505,14 @@ def _draw_ref_block(g, dwg, ml, mo, S, doc_designation: str = "") -> None:
     # g26_long = 72 мм — длина вдоль высоты листа (SVG y-направление)
     # g26_cross = 14 мм — ширина поперёк поля сшивки (SVG x-направление)
     g26_long, g26_cross = 72.0, 14.0
-    # Rect: ширина (x) = 14 мм, высота (y) = 72 мм — основная линия FRAME
+    # Rect: ширина (x) = 14 мм, высота (y) = 72 мм — основная линия толщиной S
     ref_rect = dwg.rect(insert=(ml, mo), size=(g26_cross, g26_long), fill='white')
-    _apply_line_style(ref_rect, ESKDLineType.FRAME)
+    if S:
+        ref_rect['stroke'] = 'black'
+        ref_rect['stroke-width'] = f'{S:g}mm'
+        ref_rect['stroke-linecap'] = 'butt'
+    else:
+        _apply_line_style(ref_rect, ESKDLineType.FRAME)
     g.add(ref_rect)
 
     if doc_designation.strip():
